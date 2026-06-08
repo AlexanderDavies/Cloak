@@ -1,0 +1,39 @@
+name: cloak-db
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cloak-postgres
+    environment:
+      POSTGRES_DB: cloak
+      POSTGRES_USER: cloak
+      # Local development credential only — never reused outside local dev.
+      POSTGRES_PASSWORD: cloak
+    ports:
+      - "5432:5432"
+    volumes:
+      - cloak-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloak -d cloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Applies Flyway migrations from ./migrations against the Postgres above.
+  # Idempotent: Flyway tracks applied versions and only runs new ones.
+  flyway:
+    image: flyway/flyway:10-alpine
+    container_name: cloak-flyway
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      -url=jdbc:postgresql://postgres:5432/cloak
+      -user=cloak -password=cloak
+      -connectRetries=10
+      migrate
+    volumes:
+      - ./migrations:/flyway/sql:ro
+
+volumes:
+  cloak-pgdata:
