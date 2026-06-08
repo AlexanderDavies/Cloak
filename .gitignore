@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Claude Code — keep shared settings.json, ignore local overrides
+.claude/settings.local.json
+.claude/*.local.json
+
+# Editors
+.idea/
+.vscode/
+*.iml
+
+# Build output (component dirs also have their own .gitignore)
+build/
+.gradle/
+out/
+
+# Logs / env
+*.log
+.env
+.env.local
