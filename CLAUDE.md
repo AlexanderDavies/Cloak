@@ -50,6 +50,7 @@ READMEs should be concise: what the component is, how to run it locally, and any
 3. **On-device AI.** Feature work involving AI must keep inference local. Do not introduce SDK calls to hosted AI providers for anything that touches message content.
 4. **Graceful degradation.** WebSocket → long-poll fallback must be transparent to the user. Design message delivery so it is reliable across both transports.
 5. **Minimal footprint.** Prefer lightweight dependencies. The iOS app must stay lean enough to bundle a local model.
+6. **Minimal cleartext metadata.** Only the metadata strictly required to route and deliver a message may travel or be stored outside the encryption envelope, and it is kept to the absolute minimum. Any metadata not needed to send or receive a message is encrypted together with the message body. Every cleartext field must be justified against this rule — when in doubt, encrypt it or ask for clarification.
 
 ## Cross-cutting concerns
 
@@ -57,3 +58,20 @@ READMEs should be concise: what the component is, how to run it locally, and any
 - **Key management:** Public key distribution goes through the server; private keys never leave the device.
 - **Testing:** On the **server**, integration tests use real transport and infrastructure (Testcontainers, no mocked sockets) to catch protocol-level regressions. The **iOS app** instead mocks its dependencies (mock `Service` / network, in-memory fakes) so its suite needs no running backend — see `app/CLAUDE.md`. Contract fixtures keep those mocks aligned with the real server contract.
 - **Error handling:** Surface transport errors to the user clearly; never silently drop messages.
+
+## Engineering workflow & quality gates
+
+These apply to **all work in this repo, indefinitely** — not only the MVP.
+
+**Branch & PR flow.** Work on a `feature/<name>` branch off `main`. Before opening a PR, **rebase onto the latest `main` and squash into a single commit** whose message is a rewritten, consolidated summary of the whole change — never a concatenation of work-in-progress commits.
+
+**Review before merge — both required.** Nothing merges to `main` until **both** pass:
+1. **Skill-based code review** of the PR diff (`/code-review`, or `superpowers:requesting-code-review`), with findings addressed.
+2. **Manual human review** and approval.
+
+The skill review never replaces the manual one.
+
+**Quality gates — the build fails if any fail.**
+- **TDD** red → green → refactor on every change (details in the component `CLAUDE.md`s).
+- **Test coverage ≥ 90%**, predominantly integration tests, measured on meaningful code (generated, config, and pure-view code excluded from the denominator). JaCoCo on the server; Xcode coverage on iOS.
+- **Linting passes:** Checkstyle with Google standards on the server; SwiftLint on iOS.

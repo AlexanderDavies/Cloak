@@ -28,7 +28,7 @@ There are **no plaintext columns**. The server reads/writes ciphertext only; dec
 
 1. **Ciphertext only.** Message bodies are `bytea` ciphertext. Never add a column, index, or generated value derived from plaintext.
 2. **No plaintext in logs.** `log_statement` must not capture payloads in any environment. Keep query logging off for the message tables.
-3. **Minimise metadata.** Timestamps, sizes, and sender/recipient links leak a social graph even without plaintext. Add a metadata column only when a feature truly needs it, and document why.
+3. **Minimise metadata; encrypt the rest.** Only metadata required to route/deliver a message may be a cleartext column, kept to the absolute minimum. Timestamps, sizes, and sender/recipient links leak a social graph even without plaintext — add a cleartext metadata column only when delivery truly needs it and document why; any non-routing metadata is stored inside the encrypted payload (root principle 6). When in doubt, encrypt it or ask for clarification.
 4. **Reference identity, don't copy it.** Users are identified by Keycloak `sub`. No emails, display names, passwords, or other PII in Postgres.
 5. **Retention.** Define a retention/expiry policy per table (default to the shortest that satisfies the feature). Most-restrictive wins when unsure.
 

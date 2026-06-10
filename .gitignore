@@ -19,3 +19,6 @@ out/
 *.log
 .env
 .env.local
+
+# Visual brainstorming companion (local mockups)
+.superpowers/
