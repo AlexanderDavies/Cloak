@@ -287,6 +287,15 @@ spring:
     hibernate:
       ddl-auto: validate     # Flyway owns the schema; JPA only validates
 ```
+
+> **⚠️ Deferred — secure credential storage.** The datasource username/password (and
+> any future secrets: Keycloak client secrets, Kafka SASL creds, etc.) are **hardcoded in
+> `application.yml` for now**, which is acceptable for the Phase 0 local/Testcontainers
+> walking skeleton. **Before any non-local deployment this must be revisited** — move
+> secrets out of source control into a proper secret store (env vars / Spring Cloud Config /
+> Vault / cloud secret manager) and inject them at runtime. Tracked as a future-hardening
+> item in *Spec coverage* below.
+
 Then:
 ```bash
 git rm src/main/resources/application.properties
@@ -643,4 +652,11 @@ git commit -m "$(printf 'docs: document quality gates and test tiers in server R
 - ✅ `docs/contracts/` seam stood up.
 - ⏭️ Keycloak realm users + JWKS validation, WebSocket, persistence adapter, and Kafka round-trip are **Plan 2 (Server skeleton)**.
 - ⏭️ iOS scaffold + SwiftLint/coverage are **Plan 3 (iOS skeleton)**.
+- ⏭️ **Secure credential storage & retrieval.** DB/Keycloak/Kafka credentials are hardcoded in `application.yml` for the Phase 0 local skeleton (acceptable for now). Revisit before any non-local deployment: externalise secrets into env vars / a secret manager (Vault / cloud secret store) injected at runtime — never committed to source. (See the ⚠️ note in Task 4.)
+- ⏭️ **Recipient discovery (design gap).** The message envelope assumes the sender already knows the recipient's Keycloak `sub`; there is no contact-lookup / user-directory mechanism, and it is not covered by the current MVP slices. Needs a dedicated design (incl. principle-6 metadata implications) before any user-facing release. (Documented in `docs/contracts/phase0-message-envelope.md` → *Known gaps*.)
+- ⏭️ **Sender-spoofing trust rule (Plan 2 requirement).** `sender_sub` must be derived server-side from the validated JWT `sub`; the client-supplied `fromSub`/`deviceId` must be verified against the authenticated principal, never trusted. (Documented in `docs/contracts/phase0-message-envelope.md` → *Server trust rules*.)
+- ⏭️ **Flyway migration packaging (deployment).** `spring.flyway.locations: filesystem:../db/migrations` resolves relative to the process working directory — correct under Gradle (CWD `server/`) but **breaks for `java -jar` / non-Gradle launch**, where the repo-root `db/` is not on the path and isn't bundled in the jar. Before packaging/deploy, ship migrations on the classpath (or bundle `db/` with the artifact) and switch the location accordingly. *(Code-review finding.)*
+- ⏭️ **JaCoCo gate is vacuous until real code lands.** With only the excluded bootstrap class present, the ≥90% rule measures an empty class set and passes trivially; the `com/cloak/server/**/config/**` path-glob exclusion will also silently drop any real class placed under a `config` subpackage. When production classes arrive (Plan 2), prefer annotation-based exclusion (bootstrap / `@Generated`) so new code is measured by default. *(Code-review finding.)*
+- ⏭️ **Message dedupe / `messageId` persistence.** The envelope's `messageId` (dedupe/ordering) has no column in `encrypted_message` (PK `id` is server-generated). Plan 2 must persist the client `messageId` (or adopt it as the PK) with a uniqueness guarantee so retried sends can be deduped at the DB layer. *(Code-review finding.)*
+- ⏭️ **Resource-server issuer wiring.** `IntegrationTestBase` registers `cloak.auth.issuer-uri` but nothing consumes it yet. Plan 2 wires JWT validation against this issuer — reconcile the property key with whatever the resource-server config actually reads (e.g. `spring.security.oauth2.resourceserver.jwt.issuer-uri`). *(Code-review finding.)*
 ```
