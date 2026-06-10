@@ -24,6 +24,17 @@ Realm: **`cloak`**. Issuer (local): `http://localhost:8081/realms/cloak`.
 
 The server validates: **issuer** = `…/realms/cloak`, **signature** against the realm JWKS (`…/realms/cloak/protocol/openid-connect/certs`), and **audience** = `cloak-api`.
 
+## Token validation strategy
+
+The server validates JWTs **locally via JWKS** — it does **not** call Keycloak's introspection endpoint per request.
+
+- Spring Security resource server (`spring-boot-starter-oauth2-resource-server`) is configured with the realm `issuer-uri`; it discovers and caches the JWKS and handles key rotation. Each request is checked locally (signature + `iss` + `aud: cloak-api` + `exp`) with no network call to Keycloak — keeping it off the hot path of a high-volume WebSocket hub.
+- **Revocation gap:** because validation is local, a revoked token stays valid until it expires. Mitigate with **short access-token TTLs** (~5 min) + refresh tokens. If hard instant-kill is ever required, add a small denylist or selective introspection — without putting Keycloak on every request.
+- **WebSockets:** validate the JWT at the **handshake**, then re-validate on token refresh / periodically (cheap, because it's local).
+- **Why not introspection:** a per-request round-trip to Keycloak adds latency and makes Keycloak a request-path SPOF — the wrong trade for a real-time messaging hub.
+
+The slice-specific wiring (resource-server config, the WS handshake interceptor) is defined in the relevant feature spec when that slice is planned.
+
 ## What the server relies on (the contract)
 
 - OIDC discovery: `http://localhost:8081/realms/cloak/.well-known/openid-configuration`

@@ -1,6 +1,6 @@
 # Cloak — Queue (Kafka)
 
-Single-node Apache Kafka (KRaft mode), run as a Docker container. Carries encrypted message payloads for reliable async delivery and fan-out to offline / multi-device recipients. Ciphertext only — the queue never holds plaintext.
+Single-node Apache Kafka (KRaft mode) + Confluent Schema Registry, run as Docker containers. Carries encrypted message payloads for reliable async delivery and fan-out to offline / multi-device recipients. Record values are **Avro**; ciphertext only — the queue never holds plaintext.
 
 ## Prerequisites
 
@@ -17,10 +17,12 @@ From the repo root (starts the infra stack and creates topics):
 Or queue-only, from this folder:
 
 ```bash
-docker compose up -d   # starts Kafka on localhost:9092
+docker compose up -d   # starts Kafka (localhost:9092) + Schema Registry (localhost:8085)
 ./create-topics.sh     # idempotently creates the Cloak topics
 docker compose down     # stop
 ```
+
+Record values are Avro; schemas are managed by the Schema Registry at `http://localhost:8085`. See [`CLAUDE.md`](CLAUDE.md) → Serialization.
 
 ## Topics
 

@@ -1,12 +1,12 @@
 # CLAUDE.md — Cloak Queue (Kafka)
 
-Kafka is Cloak's asynchronous delivery backbone: it carries encrypted message payloads for **reliable async delivery and fan-out to offline and multi-device recipients**. It runs as a single-node Docker container (KRaft mode) for local development. Like every server-side component, the queue is **untrusted with message content** — only ciphertext flows through it, and topic names, keys, and headers must never reveal message contents (see root `Cloak/CLAUDE.md` for the E2EE/privacy invariants).
+Kafka is Cloak's asynchronous delivery backbone: it carries encrypted message payloads for **reliable async delivery and fan-out to offline and multi-device recipients**. It runs as a single-node Kafka (KRaft) container alongside a **Confluent Schema Registry** for local development. Like every server-side component, the queue is **untrusted with message content** — only ciphertext flows through it, and topic names, keys, and headers must never reveal message contents (see root `Cloak/CLAUDE.md` for the E2EE/privacy invariants).
 
 ## What lives in this folder
 
 | Path | Purpose |
 |------|---------|
-| `docker-compose.yml` | Local single-node Kafka (KRaft) container |
+| `docker-compose.yml` | Local single-node Kafka (KRaft) + Confluent Schema Registry containers |
 | `create-topics.sh` | **Single source of truth for topic definitions.** Idempotent; creates topics via the running broker |
 | `README.md` | How to run Kafka locally |
 | `CLAUDE.md` | This guide |
@@ -37,10 +37,18 @@ Naming convention: `cloak.<domain>.<event>`. Defined in `create-topics.sh`.
 
 - Replication factor **1**, **12** partitions for message topics (1 for the DLQ). These are local-dev values; production replication/partitioning is set per environment, not here.
 
+## Serialization — Avro + Confluent Schema Registry
+
+Kafka record **values are Avro**, with schemas managed by **Confluent Schema Registry** (local: `http://localhost:8085`). Record **keys are plain strings** (recipient `sub`).
+
+- **Schemas live in-repo** as `.avsc` files in the server module (`server/src/main/avro/`) and are **registered via the build/CI** — not left to producer auto-registration. This keeps schema evolution governed and makes a future registry swap (e.g. to Apicurio, which exposes a Confluent-compatible API) a low-effort cut-over, helped by our short topic retention.
+- **Keep registry usage behind the standard serdes** (`KafkaAvroSerializer` / `KafkaAvroDeserializer` + a single `schema.registry.url`); don't scatter registry-specific calls through the code.
+- The Avro `ciphertext` field is `bytes` the server treats as **opaque** — the schema governs the envelope shape, never the message content.
+
 ## Privacy guardrails — non-negotiable
 
-1. **Ciphertext payloads only.** Record values are the client's ciphertext. Nothing plaintext in values, keys, headers, or topic names.
-2. **Minimise metadata.** Keys and headers leak a social graph and timing. Carry only what delivery requires (recipient `sub`, message id).
+1. **Ciphertext payloads only.** Record values are Avro envelopes whose `ciphertext` field is opaque bytes. Nothing plaintext in values, keys, headers, topic names, or schemas.
+2. **Minimise metadata; encrypt the rest.** Keys and headers leak a social graph and timing, so carry only what delivery requires (recipient `sub`, message id) — the absolute minimum. Any metadata not needed to deliver the message lives inside the encrypted payload, never in keys/headers (root principle 6). When in doubt, encrypt it or ask for clarification.
 3. **No plaintext logging.** Consumer/producer logs must never dump record values.
 4. **Retention.** Set the shortest retention that satisfies reliable delivery; most-restrictive wins when unsure.
 
