@@ -777,46 +777,44 @@ try {
 - Throw **domain-meaningful runtime exceptions** from the domain (`IllegalStateException` for invariant violations is acceptable; custom types like `RecordAlreadyExists`, `OrderNotFoundException` for application-layer signals).
 - **Never throw** HTTP / framework exceptions from inside the domain.
 
-### 9.2 Global exception handler
-One `@RestControllerAdvice` at `@Ordered.HIGHEST_PRECEDENCE`:
+### 9.2 Standard response envelope
+
+Every REST response — success or failure — is a `WrappedResponse<T>` with the same three fields:
+
+```json
+// success (200)
+{ "data": { "sub": "abc-123" }, "errors": null, "traceId": "9f2c4e1a" }
+
+// failure (4xx / 5xx) — errors is a non-empty array
+{ "data": null,
+  "errors": [ { "code": "VALIDATION_ERROR", "field": "toSub", "message": "must not be blank" } ],
+  "traceId": "9f2c4e1a" }
+```
+
+- **`data`** — the resource on success; `null` on failure. Domain timestamps (`createdAt`, …) live **inside `data`**, never on the envelope.
+- **`errors`** — `null` on success; a **non-empty array** on failure. One element per distinct problem (bean validation yields one element per field). Each element has a stable SCREAMING_SNAKE **`code`**, a safe human **`message`**, and an optional **`field`** (present for field-level errors, omitted otherwise via `@JsonInclude(NON_NULL)`).
+- **`traceId`** — present on **every** response body, and also returned as the **`X-Trace-Id` response header**. Sourced from the `CorrelationFilter` MDC (§10.1). It lets a client surface a support reference and lets ops correlate to logs. No body timestamp — the standard HTTP `Date` header already carries response time.
 
 ```java
-@RestControllerAdvice
-@Order(Ordered.HIGHEST_PRECEDENCE)
-public class CustomExceptionHandler {
+public record ApiError(String code, String message, @JsonInclude(NON_NULL) String field) {}
 
-    @ExceptionHandler(RecordAlreadyExistsException.class)
-    public ResponseEntity<WrappedResponse<?>> handleConflict(
-        RecordAlreadyExistsException ex, HttpServletRequest req) {
-        log.warn("Record already exists [path:{}]", req.getRequestURI(), ex.getMessage());
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-            .body(WrappedResponse.error("RECORD_ALREADY_EXISTS", ex.getMessage()));
-    }
-
-    @ExceptionHandler(DownstreamException.class)
-    public ResponseEntity<WrappedResponse<?>> handleDownstream(
-        DownstreamException ex, HttpServletRequest req) {
-        var status = ex.getStatusCode().is5xxServerError() ? HttpStatus.INTERNAL_SERVER_ERROR : ex.getStatusCode();
-        log.error("Downstream error [path:{}]", req.getRequestURI(), ex);
-        return ResponseEntity.status(status)
-            .body(WrappedResponse.error(ex.getCode(), ex.getMessage()));
-    }
-
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<WrappedResponse<?>> handleValidation(
-        MethodArgumentNotValidException ex, HttpServletRequest req) {
-        log.warn("Validation error [path:{}]", req.getRequestURI());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-            .body(WrappedResponse.error("VALIDATION_ERROR", ex.getMessage()));
-    }
+public record WrappedResponse<T>(T data, List<ApiError> errors, String traceId) {
+  public static <T> WrappedResponse<T> ok(T data) { … }          // errors=null, traceId from MDC
+  public static WrappedResponse<Void> error(List<ApiError> errors) { … } // data=null, traceId from MDC
 }
 ```
 
-- Map each domain/integration exception to an explicit HTTP status + error code.
-- Always log with request path + correlation (MDC will carry `traceId`, etc. set by the filter).
-- Never return raw stack traces in responses; return a structured error body with a stable error code.
+### 9.3 Where errors are produced — two places, one envelope
 
-### 9.3 What to retry vs fail-fast
+1. **`@RestControllerAdvice` at `@Order(HIGHEST_PRECEDENCE)`** — for everything that reaches the dispatcher: domain/application exceptions (each mapped to an explicit status + stable code) and framework exceptions — bean validation (`MethodArgumentNotValidException` / `HandlerMethodValidationException` → one `ApiError` **per field**), malformed body (`HttpMessageNotReadableException` → `MALFORMED_REQUEST`), unknown route (`NoResourceFoundException` → 404), method / media-type not supported (405 / 415), and a catch-all `Exception` → 500 `INTERNAL_ERROR` with a **safe generic message** (never the cause).
+2. **Spring Security `AuthenticationEntryPoint` (401) + `AccessDeniedHandler` (403)** — auth failures are raised in the security filter chain *before* the dispatcher, so `@RestControllerAdvice` never sees them. Custom handlers serialise the **same** `WrappedResponse` envelope (codes `UNAUTHORIZED` / `FORBIDDEN`).
+
+Rules:
+- Map each exception to an explicit HTTP status + stable code; never invent ad-hoc bodies.
+- **Never** leak stack traces, SQL, ciphertext, or PII in `message` (root §0.6) — sanitised, stable text only.
+- Log at the right level with the request path; MDC carries `traceId` (§10.1).
+
+### 9.4 What to retry vs fail-fast
 - **Retry** (bounded by max attempts + total duration via Resilience4j config, §7.2): optimistic-lock conflicts, transient infra failures (5xx from downstream, network blips).
 - **Fail-fast:** validation errors, domain invariant violations, 4xx from downstream caused by bad input.
 
@@ -1092,6 +1090,26 @@ Don't duplicate. If an integration test already covers a case, don't add a redun
 - **"I don't need to assert the request body."** You do — `withRequestBody(matchingJsonPath(...))` exists because contract drift is otherwise silent.
 - **Failures must point at the cause.** When a test fails, the message + container logs + captured WireMock requests should reveal the bug in under a minute. If they don't, the test needs better assertions.
 - **"This integration test runs millions of concurrent virtual threads — why is it slow?"** Almost always connection-pool exhaustion (§3.3) or a `synchronized` block pinning carriers. Check pool metrics; enable pinned-thread tracing.
+
+### 12.10 Test naming convention
+
+Name test methods `state_action_outcome` — underscore-separated segments, each in camelCase, mapping to **given → when → then**. The name must read as a sentence describing the behaviour under test, not the method being called.
+
+- Two or three segments, depending on how much context the behaviour needs:
+  - `state_outcome` — `noToken_returns401`, `validToken_returnsSub`
+  - `state_action_outcome` — `authenticatedClient_sendsEnvelope_serverPersists`, `downstreamPaymentDeclined_returnsConflict_noOrderPersisted`
+- Each segment is camelCase; segments are separated by `_` only (no other underscores).
+- Describe **behaviour and outcome**, never the implementation or a bare CRUD verb. Avoid `testSave()`, `save_works()`, `shouldWork()`.
+
+```java
+@Test
+void routedMessage_isPersisted_andRetrievable() { ... }   // given a routed message → then persisted & retrievable
+
+@Test
+void unauthenticatedClient_isRejected() { ... }            // given no/invalid auth → then rejected
+```
+
+This applies to unit and integration tests alike. Karate scenarios (§13) use their own `Scenario:` prose and are exempt.
 
 ---
 

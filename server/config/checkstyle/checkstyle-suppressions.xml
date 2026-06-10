@@ -7,4 +7,7 @@
   <suppress files="ServerApplication\.java" checks="SummaryJavadoc"/>
   <suppress files="ServerApplication\.java" checks="MissingJavadocType"/>
   <suppress files="ServerApplication\.java" checks="MissingJavadocMethod"/>
+  <!-- "WhoAmI" is the intended, readable name for the /v1/me auth probe; the consecutive-capital
+       rule would force an unnatural rename. Suppress the abbreviation check on those types only. -->
+  <suppress files="WhoAmI.*\.java" checks="AbbreviationAsWordInName"/>
 </suppressions>

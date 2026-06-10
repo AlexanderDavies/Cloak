@@ -1,9 +1,35 @@
+cloak:
+  auth:
+    issuer-uri: http://localhost:8081/realms/cloak
+    audience: cloak-api
 spring:
   application:
     name: server
   threads:
     virtual:
       enabled: true          # ARCHITECTURE_GUIDE §3.1
+  kafka:
+    # Record keys are plain strings (recipient sub); values are Avro via Confluent serdes
+    # (queue/CLAUDE.md → Serialization). The registry URL is overridden per-environment.
+    properties:
+      schema.registry.url: http://localhost:8085
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
+    consumer:
+      group-id: cloak-server
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: io.confluent.kafka.serializers.KafkaAvroDeserializer
+      properties:
+        specific.avro.reader: true
+    listener:
+      ack-mode: record
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8081/realms/cloak
   datasource:
     url: jdbc:postgresql://localhost:5432/cloak
     username: cloak

@@ -32,6 +32,9 @@ The `cloak` realm is auto-imported from [`realm/cloak-realm.json`](realm/cloak-r
 |--------|------|---------|
 | `cloak-ios` | Public, PKCE (S256) | The iOS app — redirect `com.cloak.app://oauth-callback/*` |
 | `cloak-api` | Bearer-only | The server as resource server; tokens carry `aud: cloak-api` |
+| `cloak-test` | Public, direct-access grants | **Test-only.** Used exclusively to mint tokens in integration tests (direct password grant). Not used by the app. |
+
+The realm also seeds two local test users (`alice`/`bob`, password `password`) for use in integration tests. These exist for local dev and automated testing only — not in production.
 
 Edit `cloak-realm.json` to change realm config (config-as-code). Changing the realm name, client ids, redirect scheme, or audience is a contract change — coordinate with the app and server.
 
