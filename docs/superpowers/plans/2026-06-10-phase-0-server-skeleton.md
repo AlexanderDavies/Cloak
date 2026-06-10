@@ -35,6 +35,7 @@
 
 **Files:**
 - Modify: `iam/realm/cloak-realm.json`
+- Modify: `iam/README.md`
 
 - [ ] **Step 1: Add two users and a test-only direct-access client**
 
@@ -48,6 +49,9 @@ Add to the top-level object:
     "enabled": true,
     "email": "alice@example.com",
     "emailVerified": true,
+    "firstName": "Alice",
+    "lastName": "Example",
+    "requiredActions": [],
     "credentials": [{ "type": "password", "value": "password", "temporary": false }]
   },
   {
@@ -55,10 +59,18 @@ Add to the top-level object:
     "enabled": true,
     "email": "bob@example.com",
     "emailVerified": true,
+    "firstName": "Bob",
+    "lastName": "Example",
+    "requiredActions": [],
     "credentials": [{ "type": "password", "value": "password", "temporary": false }]
   }
 ]
 ```
+> **`firstName`/`lastName`/`requiredActions: []` are required.** Keycloak 26's default user-profile
+> marks `firstName` and `lastName` as required attributes; an imported user missing them (or carrying
+> a pending required action) is "not fully set up" and the password grant fails with
+> `invalid_grant: "Account is not fully set up"`. These fields were added when Task 2 first exercised
+> the token mint (the only place that surfaces this).
 Add to the `clients` array:
 ```json
 {
@@ -85,10 +97,14 @@ Add to the `clients` array:
 Run (repo root): `python3 -c "import json; json.load(open('iam/realm/cloak-realm.json')); print('ok')"`
 Expected: `ok`.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Update `iam/README.md`**
+
+Per `iam/CLAUDE.md` principle 5: any change to what the realm exposes must update `iam/README.md` in the same change set. Add a row for `cloak-test` to the client table and a note that the realm seeds two local test users (`alice`/`bob`, password `password`) for integration tests only.
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add iam/realm/cloak-realm.json
+git add iam/realm/cloak-realm.json iam/README.md docs/superpowers/plans/2026-06-10-phase-0-server-skeleton.md
 git commit -m "$(printf 'feat(iam): seed alice/bob users and cloak-test client for Phase 0\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
 ```
 
@@ -101,33 +117,53 @@ git commit -m "$(printf 'feat(iam): seed alice/bob users and cloak-test client f
 - Create: `common/config/AuthProperties.java`, `common/config/SecurityConfig.java`, `adapter/input/rest/identity/WhoAmIController.java`
 - Create test: `WhoAmIIntegrationTest.java`, `support/Tokens.java`, and extend `IntegrationTestBase` to import the realm.
 
+> **Implemented (Boot 4.0.6 / Spring Security 7 reconciliations):** the snippets below reflect the
+> committed code. Three deviations from the original plan draft were required and are noted inline:
+> (a) `TestRestTemplate` was removed in Spring Boot 4 — the test uses Spring Framework 7's
+> `RestTestClient.bindToServer()` instead; (b) `JwtDecoders.fromIssuerLocation(...)` is typed to
+> return `JwtDecoder`, so it is cast to `NimbusJwtDecoder`; (c) the seeded `alice`/`bob` users
+> needed `firstName`/`lastName` + `requiredActions: []` in `iam/realm/cloak-realm.json` — without
+> them Keycloak 26's default user-profile rejects the password grant with
+> `invalid_grant: "Account is not fully set up"` (fixed in Task 1's realm file as part of this task).
+> The `cloak.auth.issuer-uri` dynamic property was already registered by Plan 1; it was refactored
+> to the `issuerUri()` helper and the resource-server `jwt.issuer-uri` registration added alongside.
+
 - [ ] **Step 1: Add the resource-server dependency**
 
-In `server/build.gradle` `dependencies {}` add:
+In `server/build.gradle` `dependencies {}` add (the actuator starter is needed by Step 3's
+`/actuator/health` permit):
 ```groovy
 implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+implementation 'org.springframework.boot:spring-boot-starter-actuator'
 ```
 
 - [ ] **Step 2: Import the realm into the test Keycloak + add a token helper**
 
-In `IntegrationTestBase.java` (Plan 1), change the Keycloak field to import the realm from the repo, and expose the issuer:
+In `IntegrationTestBase.java` (Plan 1), import the seeded realm on the Keycloak field, expose the
+issuer via a helper, and register both issuer properties dynamically (the `cloak.auth.issuer-uri`
+add was already present from Plan 1 — refactor it to the helper, do not duplicate):
 ```java
 static final KeycloakContainer KEYCLOAK =
     new KeycloakContainer("quay.io/keycloak/keycloak:26.0")
         .withRealmImportFile("/realms/cloak-realm.json");
+
+protected static String issuerUri() {
+  return KEYCLOAK.getAuthServerUrl() + "/realms/cloak";
+}
+
+// in props(...):
+r.add("cloak.auth.issuer-uri", IntegrationTestBase::issuerUri);
+r.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", IntegrationTestBase::issuerUri);
 ```
-Add the realm file to the integration-test classpath so the container can import it:
-```bash
-mkdir -p src/integrationTest/resources/realms
-cp ../iam/realm/cloak-realm.json src/integrationTest/resources/realms/cloak-realm.json
-```
-> The realm export remains single-sourced in `iam/`; this copy is a build input for tests. A Gradle `processIntegrationTestResources` copy keeps it in sync — add to `build.gradle`:
+The realm export stays single-sourced in `iam/`; a Gradle `processIntegrationTestResources` copy
+makes it a build input for tests (no hand-copied file in source control) — add to `build.gradle`:
 ```groovy
 tasks.named('processIntegrationTestResources') {
     from('../iam/realm') { into 'realms' }
 }
 ```
-(Delete the manual copy after adding this; the task copies at build time.)
+This copies `iam/realm/cloak-realm.json` onto the integrationTest classpath under `realms/`; the
+container reads `/realms/cloak-realm.json`.
 
 Create `src/integrationTest/java/com/cloak/server/support/Tokens.java`:
 ```java
@@ -156,19 +192,18 @@ public final class Tokens {
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(),
                 HttpResponse.BodyHandlers.ofString());
             JsonNode json = MAPPER.readTree(resp.body());
-            return json.get("access_token").asText();
+            JsonNode token = json.get("access_token");
+            if (token == null) {
+                throw new IllegalStateException("no access_token in response: " + resp.body());
+            }
+            return token.asText();
         } catch (Exception e) {
             throw new IllegalStateException("token mint failed", e);
         }
     }
 }
 ```
-Expose the issuer to tests by adding to `IntegrationTestBase`:
-```java
-protected static String issuerUri() {
-    return KEYCLOAK.getAuthServerUrl() + "/realms/cloak";
-}
-```
+(The `issuerUri()` helper is added to `IntegrationTestBase` in Step 2 above.)
 
 - [ ] **Step 3: Typed auth config + security filter chain**
 
@@ -212,7 +247,9 @@ public class SecurityConfig {
 
     @Bean
     JwtDecoder jwtDecoder(AuthProperties props) {
-        NimbusJwtDecoder decoder = JwtDecoders.fromIssuerLocation(props.issuerUri());
+        // Spring Security 7: fromIssuerLocation returns JwtDecoder; cast to set the validator.
+        NimbusJwtDecoder decoder =
+            (NimbusJwtDecoder) JwtDecoders.fromIssuerLocation(props.issuerUri());
         OAuth2TokenValidator<Jwt> withIssuer =
             JwtValidators.createDefaultWithIssuer(props.issuerUri());
         OAuth2TokenValidator<Jwt> audience = jwt ->
@@ -239,15 +276,9 @@ spring:
         jwt:
           issuer-uri: http://localhost:8081/realms/cloak
 ```
-And wire the test issuer dynamically — in `IntegrationTestBase.props(...)` add:
-```java
-r.add("cloak.auth.issuer-uri", IntegrationTestBase::issuerUri);
-r.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", IntegrationTestBase::issuerUri);
-```
-Also add `spring-boot-starter-actuator` for the health endpoint:
-```groovy
-implementation 'org.springframework.boot:spring-boot-starter-actuator'
-```
+The `application.yml` `cloak:` block is added at the top level; `spring.security.oauth2...` merges
+into the existing `spring:` mapping. The dynamic test wiring for both issuer properties and the
+`spring-boot-starter-actuator` dependency are already covered in Step 2 / Step 1 above.
 
 - [ ] **Step 4: Auth probe controller**
 
@@ -272,37 +303,46 @@ public class WhoAmIController {
 
 - [ ] **Step 5: Write the failing auth integration test**
 
-Create `src/integrationTest/java/com/cloak/server/WhoAmIIntegrationTest.java`:
+Create `src/integrationTest/java/com/cloak/server/WhoAmIIntegrationTest.java`. **Boot 4 removed
+`TestRestTemplate`**, so this uses Spring Framework 7's `RestTestClient.bindToServer()` against the
+random port:
 ```java
 package com.cloak.server;
 
 import com.cloak.server.support.IntegrationTestBase;
 import com.cloak.server.support.Tokens;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.http.*;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.web.servlet.client.RestTestClient;
 
 class WhoAmIIntegrationTest extends IntegrationTestBase {
 
-    @Autowired TestRestTemplate rest;
+    @LocalServerPort int port;
+
+    private RestTestClient client() {
+        return RestTestClient.bindToServer().baseUrl("http://localhost:" + port).build();
+    }
 
     @Test
     void noToken_returns401() {
-        var resp = rest.getForEntity("/v1/me", String.class);
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        client().get().uri("/v1/me").exchange().expectStatus().isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test
     void validToken_returnsSub() {
         String token = Tokens.accessToken(issuerUri(), "alice");
-        var headers = new HttpHeaders();
-        headers.setBearerAuth(token);
-        var resp = rest.exchange("/v1/me", HttpMethod.GET, new HttpEntity<>(headers), String.class);
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(resp.getBody()).contains("\"sub\"");
+        client()
+            .get()
+            .uri("/v1/me")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectBody()
+            .jsonPath("$.sub")
+            .exists();
     }
 }
 ```
@@ -461,7 +501,7 @@ git commit -m "$(printf 'feat(domain): ciphertext-only Message aggregate\n\nCo-A
 - Create: `adapter/output/database/message/{EncryptedMessageEntity,SpringDataMessageRepository,MessageRowMapper,MessageRepositoryAdapter}.java`
 - Create test: `src/integrationTest/java/com/cloak/server/MessagePersistenceIntegrationTest.java`
 
-- [ ] **Step 1: Define the output port**
+- [x] **Step 1: Define the output port**
 
 Create `port/output/message/MessageRepositoryPort.java`:
 ```java
@@ -478,7 +518,7 @@ public interface MessageRepositoryPort {
 }
 ```
 
-- [ ] **Step 2: Entity + Spring Data repo + mapper + adapter**
+- [x] **Step 2: Entity + Spring Data repo + mapper + adapter**
 
 Create `adapter/output/database/message/EncryptedMessageEntity.java`:
 ```java
@@ -608,7 +648,7 @@ class MessageRepositoryAdapter implements MessageRepositoryPort {
 }
 ```
 
-- [ ] **Step 3: Failing integration test — round-trips ciphertext byte-for-byte**
+- [x] **Step 3: Failing integration test — round-trips ciphertext byte-for-byte**
 
 Create `src/integrationTest/java/com/cloak/server/MessagePersistenceIntegrationTest.java`:
 ```java
@@ -630,8 +670,10 @@ class MessagePersistenceIntegrationTest extends IntegrationTestBase {
     void savesAndReloadsCiphertextUnchanged() {
         byte[] cipher = {4, 8, 15, 16, 23, 42};
         var id = new MessageId("22222222-2222-2222-2222-222222222222");
-        repository.save(Message.create(id, "alice-sub", "bob-sub",
-            "33333333-3333-3333-3333-333333333333", new Ciphertext(cipher)));
+        // deviceId is null: encrypted_message.device_id has an FK to device(id) (added in
+        // Plan 1's code review), and no device row is seeded here. The test's intent is the
+        // byte-for-byte ciphertext round-trip; multi-device targeting arrives in a later slice.
+        repository.save(Message.create(id, "alice-sub", "bob-sub", null, new Ciphertext(cipher)));
 
         var loaded = repository.find(id).orElseThrow();
         assertThat(loaded.ciphertext().value()).containsExactly(cipher);
@@ -640,12 +682,19 @@ class MessagePersistenceIntegrationTest extends IntegrationTestBase {
 }
 ```
 
-- [ ] **Step 4: Run** (Docker)
+- [x] **Step 4: Run** (Docker)
 
 Run: `./gradlew spotlessApply integrationTest --tests '*MessagePersistenceIntegrationTest'`
 Expected: PASS (the persisted `ciphertext` column equals the input bytes exactly — §0.6.4 privacy assertion).
 
-- [ ] **Step 5: Commit**
+PASSED with no Hibernate/Boot 4 mapping deviations: the `@Entity` started cleanly under
+`ddl-auto: validate` (byte[]↔bytea and the nullable `device_id` UUID validated without error), and
+the full `./gradlew integrationTest` stayed green (ContextLoads + WhoAmI unaffected). The integration
+test uses a **null deviceId** because `encrypted_message.device_id` has an FK to `device(id)` (added
+in Plan 1's review) and no device row is seeded here; the test's intent is the byte-for-byte
+ciphertext round-trip. No migration changes were needed.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/main src/integrationTest
@@ -658,10 +707,40 @@ git commit -m "$(printf 'feat(persistence): Message repository port + JPA adapte
 
 **Files:**
 - Create: `port/output/message/MessagePublisherPort.java`
-- Create: `adapter/output/kafka/message/{OutboundEnvelope,KafkaMessagePublisherAdapter}.java`
-- Create: `common/config/KafkaTopicsConfig.java`
-- Modify: `application.yml` (kafka producer/consumer serializers)
+- Create: `adapter/output/kafka/message/{OutboundEnvelope (Avro-generated),KafkaMessagePublisherAdapter}.java`
+- Create: `common/config/KafkaTopicsConfig.java`, `common/config/KafkaProducerConfig.java`
+- Create: `src/main/avro/OutboundEnvelope.avsc`
+- Modify: `server/build.gradle`, `application.yml` (kafka producer/consumer Avro serdes)
 - Create test: `src/integrationTest/java/com/cloak/server/MessagePublishIntegrationTest.java`
+- Modify: `src/integrationTest/java/com/cloak/server/support/IntegrationTestBase.java` (Schema Registry container)
+
+> **Implemented (Gradle 9 / Boot 4 / Confluent reconciliations):** the snippets below reflect the
+> committed code. Five deviations from the original draft were required and are noted inline:
+> (a) **`org.springframework.boot:spring-boot-kafka`** had to be added to `dependencies {}`. Boot 4
+> split Kafka auto-configuration out of `spring-boot-autoconfigure` into this dedicated module
+> (exactly like `spring-boot-flyway`). Without it `KafkaProperties`/`KafkaAutoConfiguration` are
+> absent, **no `KafkaTemplate` is bound**, and the context fails with
+> `NoSuchBeanDefinitionException` for the template. (b) Boot's auto-configured template is
+> `KafkaTemplate<Object, Object>`, which does **not** satisfy the adapter's
+> `KafkaTemplate<String, OutboundEnvelope>` injection point, so a typed `ProducerFactory` +
+> `KafkaTemplate` are declared in a new **`common/config/KafkaProducerConfig.java`** (built from the
+> resolved `spring.kafka.producer.*` props via `KafkaProperties.buildProducerProperties()` — no-arg
+> in Boot 4). (c) In the verification test, `KafkaConsumer` does **not** call `configure()` on
+> deserializer *instances* passed to its constructor, so the `KafkaAvroDeserializer` must be
+> `configure(props, false)`-d explicitly or it throws `InvalidConfigurationException: SchemaRegistryClient not found`.
+> (d) The `davidmc24` Avro plugin **v1.9.1 works on Gradle 9.5.1** (BUILD SUCCESSFUL; only generic
+> Gradle-10 deprecation warnings, no plugin failure) — the fallback `avro-tools` JavaExec was not
+> needed. (e) The Avro-generated `OutboundEnvelope` is excluded from JaCoCo (Step 1b below).
+> The Schema Registry `ConfluentKafkaContainer.withListener("kafka:19092")` API behaved as written
+> under Testcontainers 1.21.4; the registry successfully registered the schema on first publish.
+>
+> **Pre-existing, out-of-scope note (Task 8 will own it):** `jacocoTestReport` /
+> `jacocoTestCoverageVerification` fail on **JaCoCo 0.8.12** with
+> `IllegalArgumentException: Unsupported class file major version 69` — JaCoCo 0.8.12 cannot read
+> Java 25 bytecode. This is branch-wide (the failure surfaces first on the Task-2 `WhoAmIController`
+> class, not on anything from Task 5) and does **not** affect `integrationTest` execution (tests run
+> green). The coverage gate is a Task 8 concern (likely a JaCoCo bump). Task 5's only coverage
+> responsibility — excluding the generated Avro class from the denominator — is done.
 
 - [ ] **Step 1: Avro tooling + the envelope schema (Confluent Schema Registry)**
 
@@ -670,6 +749,9 @@ Record values are **Avro** (see `queue/CLAUDE.md` → Serialization). Add the Co
 - `repositories {}` (alongside `mavenCentral()`): `maven { url 'https://packages.confluent.io/maven/' }`
 - `dependencies {}`:
 ```groovy
+// Boot 4 split Kafka auto-config into a dedicated module (like spring-boot-flyway); required so a
+// KafkaTemplate is bound from spring.kafka.* and the typed template (Step 2) can be built.
+implementation 'org.springframework.boot:spring-boot-kafka'
 implementation 'org.apache.avro:avro:1.11.4'
 implementation 'io.confluent:kafka-avro-serializer:7.6.0'
 ```
@@ -689,9 +771,51 @@ Create the schema `server/src/main/avro/OutboundEnvelope.avsc` (the plugin gener
   ]
 }
 ```
-Run `./gradlew generateAvroJava compileJava`. Expected: generated `OutboundEnvelope` on the classpath; **BUILD SUCCESSFUL**. (The `.avsc` is the in-repo source of truth; do not hand-write the Java class.)
+Run `./gradlew generateAvroJava compileJava`. Expected: generated `OutboundEnvelope` on the classpath; **BUILD SUCCESSFUL**. (The `.avsc` is the in-repo source of truth; do not hand-write the Java class.) ✅ Confirmed working on Gradle 9.5.1 with plugin v1.9.1.
+
+- [ ] **Step 1b: Exclude the generated Avro class from JaCoCo**
+
+The generated `OutboundEnvelope` lands in `com.cloak.server.adapter.output.kafka.message` — outside the
+existing `**/config/**` exclusion — so JaCoCo would measure generated code and fail the ≥90% gate.
+Root `CLAUDE.md` excludes generated code from the denominator. Add to `coverageExclusions` in
+`build.gradle`:
+```groovy
+// Avro-generated envelope (and its nested Builder/types) — generated code, excluded per CLAUDE.md.
+'com/cloak/server/adapter/output/kafka/message/OutboundEnvelope*.class'
+```
+Verified the generated class files are `OutboundEnvelope.class` and `OutboundEnvelope$Builder.class`
+under `build/classes/java/main/...`; the `OutboundEnvelope*.class` glob matches both.
 
 - [ ] **Step 2: Port + adapter + topics + config**
+
+Besides the port, topics, and adapter below, a typed Kafka template is required: Boot's
+auto-configured `KafkaTemplate<Object, Object>` does not satisfy the adapter's
+`KafkaTemplate<String, OutboundEnvelope>` injection point. Create `common/config/KafkaProducerConfig.java`:
+```java
+package com.cloak.server.common.config;
+
+import com.cloak.server.adapter.output.kafka.message.OutboundEnvelope;
+import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
+
+@Configuration
+public class KafkaProducerConfig {
+    @Bean
+    ProducerFactory<String, OutboundEnvelope> envelopeProducerFactory(KafkaProperties properties) {
+        return new DefaultKafkaProducerFactory<>(properties.buildProducerProperties());
+    }
+
+    @Bean
+    KafkaTemplate<String, OutboundEnvelope> envelopeKafkaTemplate(
+            ProducerFactory<String, OutboundEnvelope> factory) {
+        return new KafkaTemplate<>(factory);
+    }
+}
+```
 
 Create `port/output/message/MessagePublisherPort.java`:
 ```java
@@ -800,9 +924,18 @@ Add `SCHEMA_REGISTRY` to `Startables.deepStart(...)`, add a helper, and register
 protected static String schemaRegistryUrl() {
     return "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081);
 }
+
+// The container fields are package-private; tests in com.cloak.server (not ..support) reach the
+// broker via this protected helper rather than the KAFKA field directly.
+protected static String kafkaBootstrapServers() {
+    return KAFKA.getBootstrapServers();
+}
+
 // in props(...):
 r.add("spring.kafka.properties.schema.registry.url", IntegrationTestBase::schemaRegistryUrl);
 ```
+The verification test consumes via `kafkaBootstrapServers()` (the `KAFKA` field is not visible
+outside `..support`).
 
 - [ ] **Step 4: Failing integration test — publishes a keyed Avro envelope**
 
@@ -844,8 +977,13 @@ class MessagePublishIntegrationTest extends IntegrationTestBase {
             ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest",
             "schema.registry.url", schemaRegistryUrl(),
             KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG, true);
+        // KafkaConsumer does NOT configure() deserializer instances passed to its constructor, so
+        // the Avro deserializer must be configured explicitly with the registry URL — otherwise
+        // it throws InvalidConfigurationException: SchemaRegistryClient not found.
+        var valueDeserializer = new KafkaAvroDeserializer();
+        valueDeserializer.configure(props, false);
         try (var consumer = new KafkaConsumer<String, Object>(
-                props, new StringDeserializer(), new KafkaAvroDeserializer())) {
+                props, new StringDeserializer(), valueDeserializer)) {
             consumer.subscribe(List.of("cloak.messages.outbound"));
             await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
                 var records = consumer.poll(Duration.ofMillis(500));
@@ -879,9 +1017,20 @@ git commit -m "$(printf 'feat(kafka): message publisher port + adapter keyed by 
 
 **Files:**
 - Create: `usecase/{RouteMessageCommand,RouteMessageUseCase}.java`
+- Create: `common/config/PersistenceConfig.java` (TransactionTemplate bean — see implementation note)
 - Create test: `src/integrationTest/java/com/cloak/server/RouteMessageIntegrationTest.java`
 
-- [ ] **Step 1: Command + use case**
+> **Implemented (Boot 4.0.6 reconciliation):** Spring Boot does NOT auto-configure a `TransactionTemplate`
+> bean when JPA is present — only the `PlatformTransactionManager` is auto-configured. `PersistenceConfig`
+> was therefore required to declare the `TransactionTemplate` bean (confirming the plan's "if no bean is
+> found" note applies here). Implementation followed the plan exactly: persist inside
+> `tx.executeWithoutResult(...)`, publish outside/after the lambda (post-commit, §5.2). No wildcard
+> imports used (spotlessApply expanded them). All integration tests pass:
+> `RouteMessageIntegrationTest.persistsThenIsRetrievable` + the full suite (6 tests, 0 failures).
+> The known JaCoCo 0.8.12 / Java 25 `IllegalClassFormatException` warnings are pre-existing and
+> do not affect test execution; coverage gate is deferred to Task 8.
+
+- [x] **Step 1: Command + use case**
 
 Create `usecase/RouteMessageCommand.java`:
 ```java
@@ -922,16 +1071,16 @@ public class RouteMessageUseCase {
     }
 }
 ```
-`TransactionTemplate` is auto-configured by Spring Boot when JPA is present; if no bean is found, add to a config class:
+`TransactionTemplate` is NOT auto-configured by Spring Boot even with JPA; `PersistenceConfig` declares it:
 ```java
 @Bean
 TransactionTemplate transactionTemplate(org.springframework.transaction.PlatformTransactionManager tm) {
     return new TransactionTemplate(tm);
 }
 ```
-(Put this in `common/config/PersistenceConfig.java`.)
+(In `common/config/PersistenceConfig.java`.)
 
-- [ ] **Step 2: Failing integration test**
+- [x] **Step 2: Failing integration test**
 
 Create `src/integrationTest/java/com/cloak/server/RouteMessageIntegrationTest.java`:
 ```java
@@ -963,15 +1112,15 @@ class RouteMessageIntegrationTest extends IntegrationTestBase {
 }
 ```
 
-- [ ] **Step 3: Run** (Docker)
+- [x] **Step 3: Run** (Docker)
 
 Run: `./gradlew spotlessApply integrationTest --tests '*RouteMessageIntegrationTest'`
-Expected: PASS.
+Result: BUILD SUCCESSFUL. Full `./gradlew integrationTest`: BUILD SUCCESSFUL (6 tests, 0 failures).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
-git add src/main src/integrationTest
+git add src/main src/integrationTest ../docs/superpowers/plans/2026-06-10-phase-0-server-skeleton.md
 git commit -m "$(printf 'feat(usecase): RouteMessageUseCase persist-then-publish\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
 ```
 
@@ -981,17 +1130,37 @@ git commit -m "$(printf 'feat(usecase): RouteMessageUseCase persist-then-publish
 
 **Files:**
 - Create: `adapter/input/websocket/{WebSocketConfig,WebSocketSessionRegistry,MessageWebSocketHandler,InboundEnvelope}.java`
-- Modify: `common/config/SecurityConfig.java` (permit the WS upgrade path through the resource-server-authenticated chain)
 - Create test: `src/integrationTest/java/com/cloak/server/WebSocketIngestIntegrationTest.java`
 
-- [ ] **Step 1: Add Spring WebSocket dependency**
+> **Implemented (Boot 4.0.6 / Spring Framework 7 reconciliations):** the snippets below reflect the
+> committed code. Notes on what was confirmed / changed versus the original draft:
+> (a) **`session.getPrincipal()` worked out-of-the-box** — no `HandshakeInterceptor`/`HandshakeHandler`
+> adaptation was needed. The resource-server filter chain authenticates the `/ws` HTTP upgrade
+> (`anyRequest().authenticated()` from Task 2) and Spring propagates the authenticated
+> `JwtAuthenticationToken` straight onto the negotiated `WebSocketSession`, so `sub(session)` casts
+> it directly. The handler's `handleTextMessage` was confirmed to fire with a non-null
+> `JwtAuthenticationToken` principal (no `ClassCastException`/NPE in logs).
+> (b) **`SecurityConfig` was NOT modified** — the original "Files" list mentioned permitting the `/ws`
+> path, but the existing `anyRequest().authenticated()` rule is exactly what we want: it *requires*
+> auth on the upgrade. The unauthenticated handshake is rejected by that same rule (verified by a
+> dedicated test). The `SecurityConfig` line was therefore dropped from the Files list.
+> (c) `spring-boot-starter-websocket:4.0.6` resolves cleanly and brings `spring-websocket:7.0.7`; the
+> classic `WebSocketConfigurer` / `TextWebSocketHandler` / `@EnableWebSocket` API is unchanged in
+> Spring 7, so the handler/config below compiled and ran as written.
+> (d) A **second test** (`unauthenticatedClient_isRejected`) was added per Step 4: it omits the bearer
+> header and asserts `execute(...).get()` throws (the handshake future completes exceptionally because
+> the filter chain returns 401 on the upgrade).
+> Full `./gradlew integrationTest` stayed green (6 suites, 8 tests, 0 failures); `./gradlew test`
+> (ArchUnit boundary rules) confirms the WS input adapter depends only on use case + domain.
+
+- [x] **Step 1: Add Spring WebSocket dependency**
 
 In `server/build.gradle` `dependencies {}`:
 ```groovy
 implementation 'org.springframework.boot:spring-boot-starter-websocket'
 ```
 
-- [ ] **Step 2: Session registry + inbound envelope + handler**
+- [x] **Step 2: Session registry + inbound envelope + handler**
 
 Create `adapter/input/websocket/InboundEnvelope.java`:
 ```java
@@ -1038,7 +1207,6 @@ import com.cloak.server.usecase.RouteMessageCommand;
 import com.cloak.server.usecase.RouteMessageUseCase;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Base64;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
@@ -1056,9 +1224,10 @@ public class MessageWebSocketHandler extends TextWebSocketHandler {
     }
 
     private String sub(WebSocketSession session) {
-        var auth = (JwtAuthenticationToken) ((org.springframework.security.core.Authentication)
-            session.getPrincipal());
-        return ((Jwt) auth.getToken()).getSubject();
+        // getPrincipal() is the JwtAuthenticationToken set by the resource-server-authenticated
+        // upgrade; no handshake adaptation needed.
+        var auth = (JwtAuthenticationToken) session.getPrincipal();
+        return auth.getToken().getSubject();
     }
 
     @Override
@@ -1104,7 +1273,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
 ```
 The `/ws` handshake is an HTTP request, so the resource-server filter chain already authenticates it (Task 2 `anyRequest().authenticated()`); `session.getPrincipal()` is the `JwtAuthenticationToken`.
 
-- [ ] **Step 3: Failing integration test — authenticated WS ingest persists + publishes**
+- [x] **Step 3: Failing integration test — authenticated WS ingest persists + publishes (plus an unauthenticated-rejection test)**
 
 Create `src/integrationTest/java/com/cloak/server/WebSocketIngestIntegrationTest.java`:
 ```java
@@ -1152,18 +1321,34 @@ class WebSocketIngestIntegrationTest extends IntegrationTestBase {
             assertThat(repository.find(new MessageId(id))).isPresent());
         session.close();
     }
+
+    @Test
+    void unauthenticatedClient_isRejected() {
+        // No bearer header: the resource-server filter chain rejects the upgrade, so the handshake
+        // future completes exceptionally.
+        assertThatThrownBy(() ->
+            new StandardWebSocketClient()
+                .execute(new TextWebSocketHandler() {}, new WebSocketHttpHeaders(),
+                    URI.create("ws://localhost:" + port + "/ws")).get())
+            .isInstanceOf(Exception.class);
+    }
 }
 ```
+(Imports add `org.assertj.core.api.Assertions.assertThatThrownBy` and
+`org.springframework.web.socket.WebSocketHttpHeaders`.)
 
-- [ ] **Step 4: Run** (Docker)
+- [x] **Step 4: Run** (Docker)
 
 Run: `./gradlew spotlessApply integrationTest --tests '*WebSocketIngestIntegrationTest'`
-Expected: PASS (authenticated WS message persisted). Also confirm an **unauthenticated** connection fails — add a second test that omits the bearer header and asserts the `execute(...).get()` throws.
+Result: BUILD SUCCESSFUL — both tests PASS (authenticated WS message persisted; unauthenticated
+handshake rejected). Full `./gradlew integrationTest`: BUILD SUCCESSFUL (6 suites, 8 tests, 0
+failures). `./gradlew test` (ArchUnit) green: the WS input adapter depends only on use case + domain.
+Did NOT run `./gradlew check` (JaCoCo Java-25 gate is Task 8).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add build.gradle src/main src/integrationTest
+git add build.gradle src/main src/integrationTest ../docs/superpowers/plans/2026-06-10-phase-0-server-skeleton.md
 git commit -m "$(printf 'feat(ws): authenticated WebSocket ingest -> RouteMessageUseCase\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
 ```
 
@@ -1296,42 +1481,114 @@ public static String subject(String accessToken) {
 }
 ```
 
-- [ ] **Step 3: Run** (Docker)
+- [x] **Step 3: Run** (Docker)
 
 Run: `./gradlew spotlessApply integrationTest --tests '*RoundTripIntegrationTest'`
-Expected: PASS — alice's ciphertext envelope is persisted, published to Kafka keyed by bob's sub, consumed, and delivered to bob's WebSocket session **unchanged**.
+Expected: PASS — alice's ciphertext envelope is persisted, published to Kafka keyed by bob's sub, consumed, and delivered to bob's WebSocket session **unchanged**. (PASSED.)
 
-- [ ] **Step 4: Run the full gate**
+- [x] **Step 4: Run the full gate**
 
 Run: `./gradlew check`
-Expected: BUILD SUCCESSFUL (all gates, ≥90% coverage).
+Expected: BUILD SUCCESSFUL (all gates, ≥90% coverage). (PASSED — see notes below.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add src/main src/integrationTest
+git add build.gradle src/main src/integrationTest config/checkstyle \
+  ../docs/superpowers/plans/2026-06-10-phase-0-server-skeleton.md
 git commit -m "$(printf 'feat(delivery): Kafka consumer fans envelope to recipient WS session\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
 ```
+
+#### Implementation notes (as built) — divergences from the plan above
+
+The consumer was created at `adapter/input/kafka/OutboundMessageConsumer.java` (input adapter),
+matching the existing package convention (`adapter/input/websocket`, `adapter/output/kafka/message`)
+rather than a bare `adapter/input/kafka`. The Avro getters return `String`/`ByteBuffer` (the schema
+sets `avro.java.string=String`), so the `.toString()` calls on the snippet are no-ops but kept for
+robustness. `RoundTripIntegrationTest` builds the JSON frame from a concatenated format string (not a
+text block) to stay under the 100-char line-length rule. `Tokens.subject(...)` reuses the class's
+static `MAPPER`.
+
+**JaCoCo (the Java-25 blocker).** Bumped `jacoco.toolVersion` `0.8.12 → 0.8.13` in `build.gradle`.
+0.8.13 is the first JaCoCo release that reads Java 25 bytecode (class file major version 69); on
+0.8.12 the coverage tasks errored with `Unsupported class file major version 69` once real app
+classes existed. After the bump, `jacocoTestReport` and `jacocoTestCoverageVerification` run cleanly
+(no major-version error). It is the newest released version on Maven Central, so no risk of a
+still-unsupported gap.
+
+**Two additional pre-existing gate blockers surfaced here (Tasks 1–7 never ran a full `check`).**
+1. *Checkstyle linted the generated Avro source.* `checkstyleMain`/`checkstyleIntegrationTest` failed
+   on `build/generated-main-avro-java/.../OutboundEnvelope.java`. Fix: drop the generated source tree
+   from every `Checkstyle` task in `build.gradle`
+   (`source = source.filter { !it.path.contains('generated-main-avro-java') }`). Generated code is
+   already excluded from the coverage denominator; this aligns the lint scope. *(Not a broadened
+   coverage exclusion — Checkstyle only.)*
+2. *Hand-written merged code carried `MissingJavadoc*` / `AbbreviationAsWordInName` warnings* under
+   `maxWarnings = 0`. Fix: added concise Javadoc to the public types/methods of `Message`,
+   `MessageId`, `Ciphertext`, `MessagePublisherPort`, `MessageRepositoryPort`, `RouteMessageUseCase`,
+   `RouteMessageCommand`, `EncryptedMessageEntity`, `WebSocketSessionRegistry`, `WebSocketConfig`,
+   `MessageWebSocketHandler`, plus the new `OutboundMessageConsumer`; and added a narrow
+   `AbbreviationAsWordInName` suppression for the intentionally-named `WhoAmI*` types in
+   `config/checkstyle/checkstyle-suppressions.xml` (rename would be unnatural).
+
+**Coverage result:** `jacocoTestCoverageVerification` passes; measured INSTRUCTION coverage **98.32%**
+(covered 526 / missed 9). The only uncovered lines are the non-null `deviceId` branch in
+`MessageRowMapper` and the `session.isOpen()`-false / no-sessions edge in the consumer — both well
+within the 90% gate, so no extra coverage-only tests were added (avoiding device-row FK seeding that
+the gate did not require).
+
+**Final gate:** `./gradlew check` → **BUILD SUCCESSFUL**. No ciphertext/plaintext is logged anywhere
+(verified by grep; the kafka adapters carry no logger and only re-encode the opaque blob as base64 to
+forward it).
 
 ---
 
 ### Task 9: Docs — README + contract sync
 
 **Files:**
-- Modify: `server/README.md`, `docs/contracts/phase0-message-envelope.md` (confirm match)
+- Modify: `server/README.md`, `docs/contracts/phase0-message-envelope.md`
 
-- [ ] **Step 1: Document the WebSocket endpoint + auth**
+> **Implemented:** the plan draft underspecified the contract reconciliation. The original
+> contract showed a single frame containing `fromSub`, but the implementation uses two distinct
+> frames. The reconciliation is documented here as built.
 
-Append to `server/README.md` an `## API` section: the `/ws` WebSocket endpoint requires `Authorization: Bearer <Keycloak access token>` at handshake; the inbound frame matches `docs/contracts/phase0-message-envelope.md`; `/v1/me` returns the caller's `sub`.
+- [x] **Step 1: Add `## API` section to `server/README.md`**
 
-- [ ] **Step 2: Confirm the contract matches the implemented `InboundEnvelope`/`OutboundEnvelope`.** If fields drift, update `docs/contracts/phase0-message-envelope.md` in this commit (single source of truth).
+Added an `## API` section documenting:
+- `GET /v1/me` — returns the caller's Keycloak `sub`; requires `Authorization: Bearer <token>`;
+  returns 401 on missing/invalid token.
+- `/ws` WebSocket — requires `Authorization: Bearer <Keycloak access token>` at the HTTP
+  upgrade; unauthenticated upgrades are rejected 401. Describes inbound frame (no `fromSub`,
+  sender derived from JWT `sub`), server behaviour (persist + Kafka publish keyed by recipient
+  `sub`), and delivery frame (`fromSub` server-stamped). Auth model note: JWKS-validated
+  Keycloak tokens (issuer + `cloak-api` audience); local-dev `alice`/`bob` (password `password`).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 2: Reconcile `docs/contracts/phase0-message-envelope.md` to implementation**
+
+The original contract had a single frame containing `fromSub`. The implementation uses two
+frames. Reconciliation made:
+
+1. Replaced the single "Frame" section with **two** labelled frames:
+   - **Inbound frame (client → server, over `/ws`):** `{ messageId, toSub, deviceId,
+     ciphertext(base64) }` — **no `fromSub`**. Prose explains the sender is derived from the
+     authenticated JWT `sub` by `MessageWebSocketHandler`, structurally preventing spoofing.
+   - **Delivery frame (server → recipient, over `/ws`):** `{ messageId, toSub, fromSub,
+     deviceId, ciphertext(base64) }` — `fromSub` is the server-stamped sender `sub` (not
+     client-supplied), sourced from the Avro `OutboundEnvelope`.
+2. Split **Cleartext-field justification** into two subsections (one per frame).
+3. Updated **Server trust rules**: sender spoofing is now structurally prevented (the inbound
+   frame carries no `fromSub`; the server sets `sender_sub`/delivery `fromSub` from the
+   validated JWT). The `deviceId` ownership rule is retained, with an honest note that
+   **Phase 0 only enforces the FK referential check — ownership validation (device belongs to
+   sender) is pending a later slice**.
+4. Preserved the "Known gaps / recipient discovery" section unchanged.
+
+- [x] **Step 3: Commit**
 
 ```bash
-git add README.md
-cd .. && git add docs/contracts && cd server
-git commit -m "$(printf 'docs: document /ws + auth; sync Phase 0 envelope contract\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
+git add server/README.md docs/contracts/phase0-message-envelope.md \
+  docs/superpowers/plans/2026-06-10-phase-0-server-skeleton.md
+git commit -m "$(printf 'docs: document /ws + auth; sync Phase 0 envelope contract to inbound/delivery frames\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>')"
 ```
 
 ---
@@ -1351,4 +1608,57 @@ git commit -m "$(printf 'docs: document /ws + auth; sync Phase 0 envelope contra
 - ✅ Seed users in `cloak-realm.json`; realm imported into the test harness.
 - ✅ Privacy assertions (ciphertext unchanged; no plaintext).
 - ⏭️ iOS client (login, libsignal keygen, send/receive vs mocked Service) = **Plan 3**.
+
+## Deferred — persistence performance tuning
+
+The persistence adapter (Task 4) uses Spring Data JPA (Hibernate-generated SQL) for `save` and
+`findById` — correct and sufficient for these insert/PK-lookup operations. The hexagonal
+`MessageRepositoryPort` preserves the freedom to drop to hand-tuned SQL per operation later with
+zero domain/use-case blast radius (`ARCHITECTURE_GUIDE` §2.4 ISP: read projections belong on a
+separate `…QueryPort`). Two concrete candidates to revisit **when real query/throughput load
+arrives — measure first, don't pre-optimise the skeleton**:
+
+- ⏭️ **Assigned-id insert does a SELECT-before-INSERT.** `EncryptedMessageEntity` has a manually
+  assigned UUID `@Id`, so Spring Data `save()` treats it as non-new and calls `merge()` → a
+  redundant `SELECT` before every `INSERT` on the message write path. When ingest throughput
+  matters, fix it behind the port: implement `Persistable<UUID>.isNew()`, or use
+  `EntityManager.persist`, or a native / `JdbcClient` insert.
+- ⏭️ **Tuned reads via a dedicated `MessageQueryPort`.** First real candidate is the offline-delivery
+  fetch — "undelivered messages for `recipient_sub`, ordered by `created_at`, paginated" — which
+  already has `idx_message_recipient (recipient_sub, created_at)`. Implement as a tuned native
+  `@Query` / `JdbcClient` / jOOQ read behind a separate query port. Select only the columns needed
+  (don't drag `ciphertext` into a routing-metadata scan); never log opaque-byte query params.
+
+## Deferred — Kafka topic configuration ownership
+
+- ⏭️ **Topic config may move out of the server.** `cloak.messages.outbound` is currently declared in
+  two places: `queue/create-topics.sh` (the source of truth per `queue/CLAUDE.md` §4) and the Spring
+  `NewTopic` bean in `common/config/KafkaTopicsConfig.java` (auto-created by `KafkaAdmin` at startup).
+  In future the topology may be owned entirely outside the server — by `create-topics.sh`,
+  infra-as-code, or a platform/topic-provisioning tool managed per environment. At that point
+  **`KafkaTopicsConfig` becomes redundant and can be removed**: the server would only produce/consume,
+  not declare topics. (Until then, the bean is convenient for local bring-up and tests; keep the two
+  definitions in sync — partition count / RF.)
+
+## Added beyond original scope — standard API response envelope
+
+Added after the plan's core tasks (decided with the user): a standard REST response contract so success
+and error payloads are uniform. See `ARCHITECTURE_GUIDE` §9 for the authoritative shape.
+
+- **Envelope** `WrappedResponse<T>` = `{ data, errors, traceId }`; `errors` is `null` on success and a
+  **non-empty array** of `{ code, message, field? }` on failure (one element per field for validation).
+- **`traceId`** on every response body and as the **`X-Trace-Id`** header, sourced from a minimal
+  `CorrelationFilter` (a partial down-payment on §10.1 — the full observability stack is its own plan).
+- Errors emitted in two places, one envelope: a `@RestControllerAdvice` (domain + framework exceptions)
+  and Spring Security's `AuthenticationEntryPoint`/`AccessDeniedHandler` (401/403, raised before the
+  dispatcher). Applied to `/v1/me`; all future REST endpoints inherit it.
+- ⏭️ **WebSocket error frames are deferred.** `/ws` is a stream, not request/response, so a standard
+  error frame (malformed inbound frame, mid-session auth failure, rejected message) is a separate,
+  smaller follow-up — not covered by this REST envelope.
+- ✅ **Standardised on Jackson 3.** Spring Boot 4's default JSON stack is **Jackson 3**
+  (`tools.jackson.databind.json.JsonMapper`) — there is no Jackson 2 `ObjectMapper` bean. All
+  application JSON now uses the injected Jackson 3 `JsonMapper`: the REST envelope, and (migrated from
+  `new ObjectMapper()`) the WebSocket handler and Kafka consumer. No `com.fasterxml.jackson.databind`
+  reference remains in `src/main` (Jackson 2 lingers on the classpath only transitively via the
+  Confluent/Kafka deps; annotations under `com.fasterxml.jackson.annotation` are unaffected).
 ```

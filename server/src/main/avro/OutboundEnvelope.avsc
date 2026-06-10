@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "OutboundEnvelope",
+  "namespace": "com.cloak.server.adapter.output.kafka.message",
+  "doc": "Kafka delivery envelope. Routing metadata + opaque ciphertext only.",
+  "fields": [
+    { "name": "messageId", "type": "string" },
+    { "name": "toSub", "type": "string" },
+    { "name": "fromSub", "type": "string" },
+    { "name": "deviceId", "type": ["null", "string"], "default": null },
+    { "name": "ciphertext", "type": "bytes", "doc": "opaque; the server never decrypts" }
+  ]
+}

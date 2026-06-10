@@ -1,46 +1,75 @@
 # Phase 0 — Message envelope (WebSocket)
 
-The walking-skeleton message frame. The payload is an **opaque ciphertext blob**
+The walking-skeleton message frames. The payload is an **opaque ciphertext blob**
 (base64); the server never decrypts it. Real Signal sessions arrive in later slices.
 
-## Frame (client → server → recipient)
+## Inbound frame (client → server, over `/ws`)
 
 ```json
 {
   "messageId": "uuid",
   "toSub": "string (Keycloak sub of recipient)",
-  "fromSub": "string (Keycloak sub of sender)",
   "deviceId": "uuid (sender device)",
   "ciphertext": "base64 string"
 }
 ```
 
+There is **no `fromSub` field** in the inbound frame. The server derives the sender identity
+from the validated JWT `sub` claim on the authenticated WebSocket session
+(`MessageWebSocketHandler` sets `senderSub = sub(session)`). This structurally prevents
+sender spoofing — there is no client-supplied sender value to forge.
+
+## Delivery frame (server → recipient, over `/ws`)
+
+```json
+{
+  "messageId": "uuid",
+  "toSub": "string (Keycloak sub of recipient)",
+  "fromSub": "string (Keycloak sub of sender — server-stamped, NOT client-supplied)",
+  "deviceId": "uuid (sender device)",
+  "ciphertext": "base64 string"
+}
+```
+
+`fromSub` is present here and is set server-side from the Avro `OutboundEnvelope`
+(`server/src/main/avro/OutboundEnvelope.avsc`), which the publisher populated from the
+authenticated sender `sub`. The recipient can therefore trust that `fromSub` reflects the
+verified Keycloak identity of the sender.
+
 ## Cleartext-field justification (principle 6)
+
+### Inbound frame
 - `messageId` — dedupe/ordering.
 - `toSub` — route/fan-out to the recipient.
-- `fromSub` — route receipts back to the sender (Slice 8).
 - `deviceId` — multi-device targeting (later slices).
 - `ciphertext` — opaque; the only content, encrypted on-device.
+
+### Delivery frame
+- `messageId` — dedupe/ordering.
+- `toSub` — identifies the recipient of this delivery.
+- `fromSub` — route receipts back to the sender (Slice 8); server-stamped from the JWT `sub`.
+- `deviceId` — multi-device targeting (later slices).
+- `ciphertext` — opaque; forwarded unchanged, never decrypted.
 
 `fromSub` as a cleartext field is revisited when sealed-sender is considered
 (future hardening); for the MVP it stays cleartext for receipt routing.
 
 ## Server trust rules
 
-The envelope is supplied by an **untrusted client**. Cleartext routing fields must not be
-taken at face value:
+The inbound frame is supplied by an **untrusted client**.
 
-- **`fromSub` must equal the authenticated sender — never trust the client value.** The
-  server derives the sender identity from the validated Keycloak JWT (`sub` claim), and the
-  persisted `encrypted_message.sender_sub` is always set from that token `sub` — not from
-  the envelope. If the envelope's `fromSub` is present and does not match the authenticated
-  principal, **reject the frame** (do not silently rewrite it). This prevents a client from
-  forging messages as another user (sender spoofing).
-- **`deviceId` must belong to the authenticated sender.** Reject a `deviceId` that is not a
-  registered, non-revoked `device` row whose `owner_sub` matches the sender's `sub`.
+- **Sender identity is structurally prevented from being spoofed.** The inbound frame
+  carries no `fromSub` field. The server sets `sender_sub` (persisted column) and the
+  delivery frame's `fromSub` exclusively from the validated Keycloak JWT `sub` claim.
+  There is no client-supplied sender value to reject or rewrite — it simply does not exist
+  in the inbound frame.
 
-(Enforced in **Plan 2**, when JWT validation and the WebSocket auth handshake land — there is
-no auth in the Phase 0 foundation slice yet.)
+- **`deviceId` must belong to the authenticated sender.** A `deviceId` that is not a
+  registered, non-revoked `device` row whose `owner_sub` matches the sender's `sub` must be
+  rejected. **Phase 0 status: ownership validation is not yet enforced in code.** The
+  `encrypted_message.device_id` column has a foreign-key constraint to `device(id)`,
+  providing referential integrity, but no check verifies that the device belongs to the
+  authenticated sender. Full ownership validation is pending (a later slice).
 
 ## Known gaps / open design questions
 

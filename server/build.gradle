@@ -3,6 +3,7 @@ plugins {
     id 'org.springframework.boot' version '4.0.6'
     id 'io.spring.dependency-management' version '1.1.7'
     id 'com.diffplug.spotless' version '7.0.4'
+    id 'com.github.davidmc24.gradle.plugin.avro' version '1.9.1'
     id 'checkstyle'
     id 'jacoco'
 }
@@ -37,8 +38,19 @@ checkstyle {
     ignoreFailures = false   // violations fail the build
 }
 
+// Checkstyle scans each source set's Java, which includes the Avro plugin's generated
+// sources (build/generated-*-avro-java). Generated code is not hand-authored API and is
+// already excluded from the coverage denominator; drop the generated source tree from every
+// Checkstyle task so the Avro envelope's machine-formatted output does not fail the
+// Google-standards gate. Paths are resolved per source root, so filter on the absolute path.
+tasks.withType(Checkstyle).configureEach {
+    source = source.filter { !it.path.contains('generated-main-avro-java') }
+}
+
 repositories {
     mavenCentral()
+    // Confluent artifacts (kafka-avro-serializer, schema registry client) are not on Maven Central.
+    maven { url 'https://packages.confluent.io/maven/' }
 }
 
 sourceSets {
@@ -48,6 +60,13 @@ sourceSets {
         compileClasspath += sourceSets.main.output
         runtimeClasspath += sourceSets.main.output
     }
+}
+
+// Single-source the Keycloak realm export from iam/: copy it onto the integrationTest
+// classpath under realms/ at build time so the test container can import it via
+// .withRealmImportFile("/realms/cloak-realm.json"). No hand-copied file in source control.
+tasks.named('processIntegrationTestResources') {
+    from('../iam/realm') { into 'realms' }
 }
 
 configurations {
@@ -71,8 +90,14 @@ dependencies {
     }
 
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'org.springframework.boot:spring-boot-kafka'
+    implementation 'org.apache.avro:avro:1.11.4'
+    implementation 'io.confluent:kafka-avro-serializer:7.6.0'
     // Spring Boot 4 split Flyway auto-configuration out of spring-boot-autoconfigure
     // into the dedicated spring-boot-flyway module; without it FlywayAutoConfiguration
     // is absent and migrations never run (the context starts with an empty schema).
@@ -99,14 +124,20 @@ tasks.named('test') {
 }
 
 jacoco {
-    toolVersion = '0.8.12'
+    // 0.8.13 is the first JaCoCo release that reads Java 25 bytecode (class file major
+    // version 69). 0.8.12 errors with "Unsupported class file major version 69" once real
+    // Java-25 app classes exist, breaking jacocoTestReport / jacocoTestCoverageVerification.
+    toolVersion = '0.8.13'
 }
 
 // Coverage is measured on meaningful code only (generated/config/bootstrap excluded),
 // per root CLAUDE.md > Engineering workflow & quality gates.
 def coverageExclusions = [
     'com/cloak/server/ServerApplication.class',
-    'com/cloak/server/**/config/**'
+    'com/cloak/server/**/config/**',
+    // Avro-generated envelope (and its nested Builder/types) — generated code is excluded from
+    // the coverage denominator per root CLAUDE.md. Lives outside **/config/**, so list it here.
+    'com/cloak/server/adapter/output/kafka/message/OutboundEnvelope*.class'
 ]
 
 tasks.named('jacocoTestReport') {

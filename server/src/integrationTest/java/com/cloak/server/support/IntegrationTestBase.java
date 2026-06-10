@@ -5,6 +5,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.lifecycle.Startables;
@@ -12,8 +14,11 @@ import org.testcontainers.utility.DockerImageName;
 
 /**
  * Base class for {@code @SpringBootTest} integration tests. Boots a single shared set of
- * Testcontainers (Postgres, Kafka, Keycloak) once per JVM and wires their connection details into
- * the Spring context, so every concrete test runs against real infrastructure.
+ * Testcontainers (Postgres, Kafka, Schema Registry, Keycloak) once per JVM and wires their
+ * connection details into the Spring context, so every concrete test runs against real
+ * infrastructure. Kafka and Schema Registry share a Docker {@link Network}: the registry reaches
+ * the broker over the in-network listener {@code kafka:19092}, while tests reach the broker over
+ * the mapped host listener.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("integration-test")
@@ -25,14 +30,47 @@ public abstract class IntegrationTestBase {
           .withUsername("cloak")
           .withPassword("cloak");
 
-  static final ConfluentKafkaContainer KAFKA =
-      new ConfluentKafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
+  // Shared Docker network so Schema Registry can reach the Kafka broker by hostname.
+  static final Network NET = Network.newNetwork();
 
-  // Deliberately pre-wired for Plan 2 (JWT validation); no Phase 0 test exercises it yet.
-  static final KeycloakContainer KEYCLOAK = new KeycloakContainer("quay.io/keycloak/keycloak:26.0");
+  static final ConfluentKafkaContainer KAFKA =
+      new ConfluentKafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.6.0"))
+          .withNetwork(NET)
+          .withListener("kafka:19092"); // in-network listener consumed by Schema Registry
+
+  // Confluent Schema Registry backs the Avro serdes; it reads/writes schemas through the broker.
+  static final GenericContainer<?> SCHEMA_REGISTRY =
+      new GenericContainer<>(DockerImageName.parse("confluentinc/cp-schema-registry:7.6.0"))
+          .withNetwork(NET)
+          .withExposedPorts(8081)
+          .dependsOn(KAFKA)
+          .withEnv("SCHEMA_REGISTRY_HOST_NAME", "schema-registry")
+          .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "PLAINTEXT://kafka:19092")
+          .withEnv("SCHEMA_REGISTRY_LISTENERS", "http://0.0.0.0:8081");
+
+  // Imports the seeded realm (alice/bob + cloak-test client) from iam/realm/cloak-realm.json,
+  // copied onto the integrationTest classpath under realms/ by processIntegrationTestResources.
+  static final KeycloakContainer KEYCLOAK =
+      new KeycloakContainer("quay.io/keycloak/keycloak:26.0")
+          .withRealmImportFile("/realms/cloak-realm.json");
 
   static {
-    Startables.deepStart(POSTGRES, KAFKA, KEYCLOAK).join();
+    Startables.deepStart(POSTGRES, KAFKA, SCHEMA_REGISTRY, KEYCLOAK).join();
+  }
+
+  /** Issuer URI of the imported {@code cloak} realm on the test Keycloak. */
+  protected static String issuerUri() {
+    return KEYCLOAK.getAuthServerUrl() + "/realms/cloak";
+  }
+
+  /** Host-reachable URL of the Confluent Schema Registry container. */
+  protected static String schemaRegistryUrl() {
+    return "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081);
+  }
+
+  /** Host-reachable Kafka bootstrap servers, for tests that consume directly off the broker. */
+  protected static String kafkaBootstrapServers() {
+    return KAFKA.getBootstrapServers();
   }
 
   @DynamicPropertySource
@@ -42,8 +80,10 @@ public abstract class IntegrationTestBase {
     r.add("spring.datasource.password", POSTGRES::getPassword);
     // Flyway runs against the same datasource; migrations come from ../db/migrations.
     r.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
+    r.add("spring.kafka.properties.schema.registry.url", IntegrationTestBase::schemaRegistryUrl);
     r.add("spring.threads.virtual.enabled", () -> "true");
-    // Keycloak issuer for the resource server (validation wired in Plan 2).
-    r.add("cloak.auth.issuer-uri", () -> KEYCLOAK.getAuthServerUrl() + "/realms/cloak");
+    // Resource-server issuer: both the typed config (cloak.auth) and Boot's JWT decoder.
+    r.add("cloak.auth.issuer-uri", IntegrationTestBase::issuerUri);
+    r.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", IntegrationTestBase::issuerUri);
   }
 }
