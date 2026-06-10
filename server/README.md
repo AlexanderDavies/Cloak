@@ -19,12 +19,18 @@ Server starts on `http://localhost:8080` by default.
 ## Test
 
 ```bash
-./gradlew test
+./gradlew test              # fast unit + ArchUnit boundary tests
+./gradlew integrationTest   # @SpringBootTest on Testcontainers (Docker required)
+./gradlew check             # everything + Checkstyle (Google) + JaCoCo ≥90% gate
 ```
+
+Integration tests start real Postgres, Kafka, and Keycloak containers and apply
+the Flyway migrations from `../db/migrations`. Quality gates (Checkstyle, JaCoCo
+≥90%) fail the build on violation — see root `CLAUDE.md`.
 
 ## Configuration
 
-Edit `src/main/resources/application.properties` for local overrides (port, database URL, Kafka broker address, etc.).
+Edit `src/main/resources/application.yml` for local overrides (port, database URL, Kafka broker address, etc.).
 
 ## Architecture
 

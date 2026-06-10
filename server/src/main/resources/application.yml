@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: server
+  threads:
+    virtual:
+      enabled: true          # ARCHITECTURE_GUIDE §3.1
+  datasource:
+    url: jdbc:postgresql://localhost:5432/cloak
+    username: cloak
+    password: cloak
+  flyway:
+    enabled: true
+    # Single source of truth for the schema (root db/ folder), per db/CLAUDE.md.
+    locations: filesystem:../db/migrations
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate     # Flyway owns the schema; JPA only validates
