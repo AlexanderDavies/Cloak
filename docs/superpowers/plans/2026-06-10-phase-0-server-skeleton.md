@@ -1661,4 +1661,21 @@ and error payloads are uniform. See `ARCHITECTURE_GUIDE` §9 for the authoritati
   `new ObjectMapper()`) the WebSocket handler and Kafka consumer. No `com.fasterxml.jackson.databind`
   reference remains in `src/main` (Jackson 2 lingers on the classpath only transitively via the
   Confluent/Kafka deps; annotations under `com.fasterxml.jackson.annotation` are unaffected).
+
+## Deferred — code-review follow-ups (PR #4)
+
+From the `/code-review` pass. **Fixed in-PR:** per-session delivery isolation (one dead socket no longer
+aborts the others or triggers redelivery storms), session-registry empty-key leak, inbound trace-id
+length/charset validation, and a defensive WS principal guard. **Deferred:**
+
+- ⏭️ **Transactional outbox for delivery.** `RouteMessageUseCase` commits the DB write, then publishes to
+  Kafka; if the publish throws after commit, the message is persisted but never delivered (no retry).
+  Add an outbox (persist + enqueue atomically, relay asynchronously) when delivery reliability is built.
+- ⏭️ **Map controller-thrown security/status exceptions.** `GlobalExceptionHandler`'s catch-all turns an
+  `AccessDeniedException` / `ResponseStatusException` raised in the dispatcher into 500 INTERNAL_ERROR;
+  add explicit handlers (AccessDeniedException → 403; honour ResponseStatusException) before method
+  security (`@PreAuthorize`) lands.
+- ⏭️ **Typed delivery frame.** `OutboundMessageConsumer` rebuilds the delivery JSON as ad-hoc map keys,
+  duplicating the wire shape `InboundEnvelope` / the contract doc already define; a typed `DeliveryFrame`
+  record would be compiler-checked against drift. Pairs naturally with the WS error-frame work.
 ```

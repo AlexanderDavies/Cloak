@@ -5,8 +5,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -26,15 +26,22 @@ public class CorrelationFilter extends OncePerRequestFilter {
   /** MDC key under which the correlation id is stored. */
   public static final String TRACE_ID_KEY = "traceId";
 
+  /**
+   * Accept an inbound id only if it is a short, safe token. An unbounded or odd client value would
+   * otherwise be echoed into MDC, every log line, the response header, and every error body.
+   */
+  private static final Pattern SAFE_TRACE_ID = Pattern.compile("[A-Za-z0-9_-]{1,64}");
+
   @Override
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
     try {
+      String inbound = request.getHeader(TRACE_ID_HEADER);
       String traceId =
-          Optional.ofNullable(request.getHeader(TRACE_ID_HEADER))
-              .filter(header -> !header.isBlank())
-              .orElseGet(() -> UUID.randomUUID().toString());
+          inbound != null && SAFE_TRACE_ID.matcher(inbound).matches()
+              ? inbound
+              : UUID.randomUUID().toString();
       MDC.put(TRACE_ID_KEY, traceId);
       response.setHeader(TRACE_ID_HEADER, traceId);
       chain.doFilter(request, response);

@@ -43,8 +43,13 @@ public class MessageWebSocketHandler extends TextWebSocketHandler {
 
   /** Extracts the authenticated Keycloak {@code sub} from the session's validated JWT principal. */
   private String sub(WebSocketSession session) {
-    JwtAuthenticationToken auth = (JwtAuthenticationToken) session.getPrincipal();
-    return auth.getToken().getSubject();
+    // The /ws handshake is authenticated() by the resource-server chain, so the principal is always
+    // a JwtAuthenticationToken — guard defensively so a future config change fails clearly here
+    // rather than as an opaque ClassCastException.
+    if (session.getPrincipal() instanceof JwtAuthenticationToken auth) {
+      return auth.getToken().getSubject();
+    }
+    throw new IllegalStateException("WebSocket session has no authenticated JWT principal");
   }
 
   @Override
