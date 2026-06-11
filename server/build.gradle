@@ -94,6 +94,33 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    // Observability (ARCHITECTURE_GUIDE §10): export metrics, traces, and logs over OTLP to the
+    // local grafana/otel-lgtm stack (the OTel Collector seam). Micrometer + OTel versions are
+    // managed by the Spring Boot BOM; only the unmanaged third-party artifacts are pinned.
+    implementation 'io.micrometer:micrometer-registry-otlp'                          // metrics → OTLP
+    implementation 'io.micrometer:micrometer-tracing-bridge-otel'                    // traces → OTel
+    implementation 'io.opentelemetry:opentelemetry-exporter-otlp'                    // OTLP span export
+    // Boot 4 split the OpenTelemetry autoconfig across modules that NO starter pulls:
+    //  - spring-boot-opentelemetry: the OTel SDK beans + OTLP *logging* export.
+    //  - spring-boot-micrometer-tracing-opentelemetry: the OTel Tracer + OTLP *span* export
+    //    (OpenTelemetryTracingAutoConfiguration + OtlpTracingAutoConfiguration).
+    // Without both, the OTLP export autoconfigs silently @ConditionalOnClass-skip and nothing ships.
+    implementation 'org.springframework.boot:spring-boot-opentelemetry'
+    implementation 'org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry'
+    // Bridges Logback events into the OTel SDK LoggerProvider so structured logs ship over OTLP to
+    // Loki, tagged with the active trace id. Boot wires the LoggerProvider + OTLP log exporter but
+    // installs no appender; this OTel instrumentation artifact is alpha-versioned (its only stable
+    // line) and not BOM-managed, so it is pinned explicitly. The version MUST match the
+    // opentelemetry-api the Boot BOM manages (1.55.0) — a newer appender calls
+    // LogRecordBuilder.setException(Throwable) (added in api 1.56.0) and throws NoSuchMethodError on
+    // every exception-bearing log. 2.21.0-alpha targets api 1.55.0.
+    implementation 'io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0:2.21.0-alpha'
+    implementation 'net.ttddyy.observation:datasource-micrometer-spring-boot:2.2.1' // JDBC spans (Boot 4)
+    // @Observed → metric+span needs Micrometer's ObservedAspect, which requires AspectJ proxying.
+    // Spring Boot 4 discontinued spring-boot-starter-aop (GA ends at 3.5.x); aspectjweaver alone
+    // (BOM-managed) puts AspectJ on the classpath and triggers Boot's AopAutoConfiguration. spring-aop
+    // itself arrives transitively via spring-context.
+    implementation 'org.aspectj:aspectjweaver'
     implementation 'org.springframework.kafka:spring-kafka'
     implementation 'org.springframework.boot:spring-boot-kafka'
     implementation 'org.apache.avro:avro:1.11.4'
@@ -116,6 +143,7 @@ dependencies {
     integrationTestImplementation 'org.testcontainers:kafka'
     integrationTestImplementation 'org.springframework.kafka:spring-kafka-test'
     integrationTestImplementation 'com.github.dasniko:testcontainers-keycloak:3.4.0'
+    integrationTestImplementation 'org.testcontainers:grafana' // LgtmStackContainer (otel-lgtm)
     integrationTestImplementation 'org.awaitility:awaitility'
 }
 

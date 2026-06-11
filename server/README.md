@@ -32,6 +32,24 @@ the Flyway migrations from `../db/migrations`. Quality gates (Checkstyle, JaCoCo
 
 Edit `src/main/resources/application.yml` for local overrides (port, database URL, Kafka broker address, etc.).
 
+## Observability
+
+The server exports **metrics, traces, and logs over OTLP** to a local `grafana/otel-lgtm` stack
+(Collector + Prometheus + Loki + Tempo + Grafana), started by `./dev.sh up` as the `obs/` component.
+
+- **View it:** Grafana at `http://localhost:3000` (anonymous admin, local dev only). The provisioned
+  **"Cloak server — overview"** dashboard shows HTTP rate/latency/errors, messages-routed rate, Kafka
+  consumer lag, Hikari pool, and JVM stats.
+- **Follow one request:** every response carries an `X-Trace-Id` header (and `traceId` in the body)
+  that **is the OTel trace id** — paste it into Grafana → Explore → Tempo to see the full
+  WS/HTTP → JDBC → Kafka trace, and the correlated Loki logs (filter `| trace_id="<id>"`).
+- **Privacy:** no ciphertext, message body, or PII is ever exported; `sub` is never a metric label
+  (asserted by `TelemetryPrivacyIntegrationTest`).
+- **Fail-open:** the OTLP exporters are non-blocking — if the stack is down the server keeps serving.
+
+Endpoints are overridable per environment via `OTLP_HTTP_URL`; in production the same OTLP target is a
+standalone OpenTelemetry Collector (no app change). See `ARCHITECTURE_GUIDE.md` §10.5 and `obs/README.md`.
+
 ## API
 
 ### Response envelope

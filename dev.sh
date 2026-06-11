@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Cloak local infrastructure orchestrator.
-# Brings the per-component Docker stacks (db, queue, iam) up/down together.
+# Brings the per-component Docker stacks (db, queue, iam, obs) up/down together.
 # Each component owns its own docker-compose.yml; the server (run via Gradle)
 # reaches them over published localhost ports, so no shared network is needed.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPONENTS=(db queue iam)
+COMPONENTS=(db queue iam obs)
 
 usage() { echo "usage: $0 {up|down|ps}"; exit 1; }
 

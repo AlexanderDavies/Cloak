@@ -1,0 +1,11 @@
+apiVersion: 1
+
+# Auto-loads every dashboard JSON mounted into /var/lib/grafana/dashboards (see obs/docker-compose.yml).
+providers:
+  - name: Cloak
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

@@ -3,6 +3,7 @@ package com.cloak.server.common.config;
 import com.cloak.server.common.web.ApiAccessDeniedHandler;
 import com.cloak.server.common.web.ApiAuthenticationEntryPoint;
 import com.cloak.server.common.web.CorrelationFilter;
+import io.micrometer.tracing.Tracer;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,14 +18,16 @@ import tools.jackson.databind.json.JsonMapper;
 public class WebInfraConfig {
 
   /**
-   * Runs the {@link CorrelationFilter} before Spring Security's filter chain (order -100) so MDC
-   * {@code traceId} and the {@code X-Trace-Id} header are set even for 401/403 responses.
+   * Runs the {@link CorrelationFilter} just after Boot's HTTP observation filter ({@code
+   * HIGHEST_PRECEDENCE + 1}), which opens the OTel span, and before Spring Security's filter chain
+   * (order -100). This ordering lets the filter read the active span's trace id while still setting
+   * the {@code X-Trace-Id} header ahead of any 401/403 response.
    */
   @Bean
-  FilterRegistrationBean<CorrelationFilter> correlationFilterRegistration() {
+  FilterRegistrationBean<CorrelationFilter> correlationFilterRegistration(Tracer tracer) {
     FilterRegistrationBean<CorrelationFilter> registration =
-        new FilterRegistrationBean<>(new CorrelationFilter());
-    registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        new FilterRegistrationBean<>(new CorrelationFilter(tracer));
+    registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 2);
     return registration;
   }
 
