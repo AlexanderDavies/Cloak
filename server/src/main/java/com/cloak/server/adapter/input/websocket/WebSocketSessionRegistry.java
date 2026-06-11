@@ -32,10 +32,15 @@ public class WebSocketSessionRegistry {
    * @param session the session to stop tracking
    */
   public void remove(String sub, WebSocketSession session) {
-    Set<WebSocketSession> set = bySub.get(sub);
-    if (set != null) {
-      set.remove(session);
-    }
+    // Drop the session and, atomically, the whole entry once its set is empty — otherwise the map
+    // would retain an empty set for every sub that ever connected (an unbounded slow leak). The
+    // compute runs under ConcurrentHashMap's per-key lock, so it cannot race a concurrent add().
+    bySub.computeIfPresent(
+        sub,
+        (key, set) -> {
+          set.remove(session);
+          return set.isEmpty() ? null : set;
+        });
   }
 
   /**

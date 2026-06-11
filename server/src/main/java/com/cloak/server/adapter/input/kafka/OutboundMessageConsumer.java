@@ -2,10 +2,13 @@ package com.cloak.server.adapter.input.kafka;
 
 import com.cloak.server.adapter.input.websocket.WebSocketSessionRegistry;
 import com.cloak.server.adapter.output.kafka.message.OutboundEnvelope;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.TextMessage;
@@ -24,6 +27,8 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public class OutboundMessageConsumer {
 
+  private static final Logger log = LoggerFactory.getLogger(OutboundMessageConsumer.class);
+
   private final WebSocketSessionRegistry registry;
   private final JsonMapper jsonMapper;
 
@@ -40,13 +45,15 @@ public class OutboundMessageConsumer {
 
   /**
    * Consumes one outbound envelope and forwards the cleartext delivery frame to every open session
-   * of the recipient. The ciphertext is re-encoded as base64 and forwarded unchanged.
+   * of the recipient. The ciphertext is re-encoded as base64 and forwarded unchanged. Delivery is
+   * best-effort per session: a failing send is logged and skipped so it neither aborts delivery to
+   * the recipient's other sessions nor fails the Kafka record (which would redeliver duplicates to
+   * sessions already served).
    *
    * @param env the Avro envelope published by the router, keyed by recipient {@code sub}
-   * @throws Exception if the JSON frame cannot be serialised or a session send fails
    */
   @KafkaListener(topics = "cloak.messages.outbound", groupId = "cloak-server")
-  public void onOutbound(OutboundEnvelope env) throws Exception {
+  public void onOutbound(OutboundEnvelope env) {
     String toSub = env.getToSub().toString();
     ByteBuffer buf = env.getCiphertext();
     byte[] ciphertext = new byte[buf.remaining()];
@@ -59,12 +66,19 @@ public class OutboundMessageConsumer {
     payload.put("deviceId", env.getDeviceId() == null ? null : env.getDeviceId().toString());
     // Opaque ciphertext re-encoded as base64 and forwarded unchanged — never decrypted/inspected.
     payload.put("ciphertext", Base64.getEncoder().encodeToString(ciphertext));
-    String json = jsonMapper.writeValueAsString(payload);
+    TextMessage frame = new TextMessage(jsonMapper.writeValueAsString(payload));
 
-    TextMessage frame = new TextMessage(json);
     for (WebSocketSession session : registry.sessionsFor(toSub)) {
-      if (session.isOpen()) {
+      if (!session.isOpen()) {
+        continue;
+      }
+      try {
         session.sendMessage(frame);
+      } catch (IOException e) {
+        // A single recipient session must not abort delivery to the others; routing sub only,
+        // never the frame/ciphertext.
+        log.warn(
+            "WebSocket delivery to a session for recipient {} failed: {}", toSub, e.toString());
       }
     }
   }

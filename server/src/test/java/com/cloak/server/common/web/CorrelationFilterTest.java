@@ -59,6 +59,32 @@ class CorrelationFilterTest {
   }
 
   @Test
+  void overlongInboundHeader_isRejected_andUuidGenerated() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader("X-Trace-Id", "x".repeat(65));
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    String[] mdc = new String[1];
+    FilterChain chain = (req, res) -> mdc[0] = MDC.get("traceId");
+
+    filter.doFilter(request, response, chain);
+
+    assertThat(mdc[0]).hasSize(36).isNotEqualTo("x".repeat(65)); // generated UUID, not the input
+  }
+
+  @Test
+  void inboundHeaderWithIllegalChars_isRejected_andUuidGenerated() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader("X-Trace-Id", "bad value!");
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    String[] mdc = new String[1];
+    FilterChain chain = (req, res) -> mdc[0] = MDC.get("traceId");
+
+    filter.doFilter(request, response, chain);
+
+    assertThat(mdc[0]).isNotEqualTo("bad value!").matches("[0-9a-f-]{36}");
+  }
+
+  @Test
   void mdc_isClearedAfterChain() throws Exception {
     MockHttpServletRequest request = new MockHttpServletRequest();
     MockHttpServletResponse response = new MockHttpServletResponse();
