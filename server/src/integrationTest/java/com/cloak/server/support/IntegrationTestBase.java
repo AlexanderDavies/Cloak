@@ -8,6 +8,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.grafana.LgtmStackContainer;
 import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.utility.DockerImageName;
@@ -54,8 +55,28 @@ public abstract class IntegrationTestBase {
       new KeycloakContainer("quay.io/keycloak/keycloak:26.0")
           .withRealmImportFile("/realms/cloak-realm.json");
 
+  // All-in-one OTel Collector + Prometheus + Loki + Tempo + Grafana. The app exports OTLP here;
+  // tests
+  // assert metrics/traces/logs landed by querying the embedded Prometheus/Tempo/Loki HTTP APIs.
+  static final LgtmStackContainer LGTM = new LgtmStackContainer("grafana/otel-lgtm:0.28.0");
+
   static {
-    Startables.deepStart(POSTGRES, KAFKA, SCHEMA_REGISTRY, KEYCLOAK).join();
+    Startables.deepStart(POSTGRES, KAFKA, SCHEMA_REGISTRY, KEYCLOAK, LGTM).join();
+  }
+
+  /** Base URL of the stack's embedded Prometheus (metrics query API). */
+  protected static String prometheusUrl() {
+    return LGTM.getPrometheusHttpUrl();
+  }
+
+  /** Base URL of the stack's embedded Tempo (trace search API). */
+  protected static String tempoUrl() {
+    return LGTM.getTempoUrl();
+  }
+
+  /** Base URL of the stack's embedded Loki (log query API). */
+  protected static String lokiUrl() {
+    return LGTM.getLokiUrl();
   }
 
   /** Issuer URI of the imported {@code cloak} realm on the test Keycloak. */
@@ -85,5 +106,15 @@ public abstract class IntegrationTestBase {
     // Resource-server issuer: both the typed config (cloak.auth) and Boot's JWT decoder.
     r.add("cloak.auth.issuer-uri", IntegrationTestBase::issuerUri);
     r.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", IntegrationTestBase::issuerUri);
+    // Point the OTLP exporters at the LGTM container; push metrics every second so assertions
+    // don't wait on the default step.
+    r.add("management.otlp.metrics.export.url", () -> LGTM.getOtlpHttpUrl() + "/v1/metrics");
+    r.add(
+        "management.opentelemetry.tracing.export.otlp.endpoint",
+        () -> LGTM.getOtlpHttpUrl() + "/v1/traces");
+    r.add(
+        "management.opentelemetry.logging.export.otlp.endpoint",
+        () -> LGTM.getOtlpHttpUrl() + "/v1/logs");
+    r.add("management.otlp.metrics.export.step", () -> "1s");
   }
 }

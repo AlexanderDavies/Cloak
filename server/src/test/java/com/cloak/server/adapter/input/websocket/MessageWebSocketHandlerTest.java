@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.cloak.server.usecase.RouteMessageUseCase;
+import io.micrometer.observation.ObservationRegistry;
 import java.security.Principal;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.socket.WebSocketSession;
@@ -16,7 +17,8 @@ class MessageWebSocketHandlerTest {
       new MessageWebSocketHandler(
           mock(RouteMessageUseCase.class),
           new WebSocketSessionRegistry(),
-          JsonMapper.builder().build());
+          JsonMapper.builder().build(),
+          ObservationRegistry.NOOP);
 
   @Test
   void connection_withoutJwtPrincipal_isRejected() {

@@ -1,0 +1,25 @@
+name: cloak-obs
+
+services:
+  # All-in-one OTel Collector + Prometheus + Loki + Tempo + Grafana for local telemetry.
+  # The server exports OTLP here; Grafana visualises metrics, logs, and traces.
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.28.0
+    container_name: cloak-otel-lgtm
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "3000:3000"   # Grafana UI
+    environment:
+      # Grafana anonymous admin for local dev only.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+    volumes:
+      # Provision the starter "Cloak server — overview" dashboard at startup.
+      - ./grafana/provisioning/dashboards/cloak.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/cloak.yaml:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10

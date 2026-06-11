@@ -23,8 +23,12 @@ spring:
       value-deserializer: io.confluent.kafka.serializers.KafkaAvroDeserializer
       properties:
         specific.avro.reader: true
+    # Producer/consumer spans so a message's Kafka hop joins the same distributed trace (§10).
+    template:
+      observation-enabled: true
     listener:
       ack-mode: record
+      observation-enabled: true
   security:
     oauth2:
       resourceserver:
@@ -42,3 +46,41 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: validate     # Flyway owns the schema; JPA only validates
+
+# Observability (ARCHITECTURE_GUIDE §10): app-level metrics, traces, and logs exported over OTLP to
+# the local grafana/otel-lgtm stack (the OTel Collector seam). Endpoints are overridable per
+# environment via OTLP_HTTP_URL; in production they re-point at a standalone Collector with no code
+# change. Logs OTLP export is added in Task 6.
+logging:
+  structured:
+    format:
+      console: ecs              # structured JSON to stdout (ECS); carries traceId/spanId
+management:
+  otlp:
+    metrics:
+      export:
+        url: ${OTLP_HTTP_URL:http://localhost:4318}/v1/metrics
+        step: 5s
+  # Boot 4 namespaces OTLP tracing/logging export separately from metrics (management.otlp.metrics.*),
+  # and the OTel resource attributes (service.name) flow onto every signal here.
+  opentelemetry:
+    resource-attributes:
+      service.name: cloak-server
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_HTTP_URL:http://localhost:4318}/v1/traces
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTLP_HTTP_URL:http://localhost:4318}/v1/logs
+  tracing:
+    sampling:
+      probability: 1.0          # sample everything in dev/test; tune per environment later
+  metrics:
+    distribution:
+      # Publish an explicit-bucket latency histogram for HTTP server requests so the dashboard's
+      # p50/p95 panels resolve via histogram_quantile. Without this the timer exports only the +Inf
+      # bucket and the quantile is NaN (empty graph).
+      percentiles-histogram:
+        http.server.requests: true

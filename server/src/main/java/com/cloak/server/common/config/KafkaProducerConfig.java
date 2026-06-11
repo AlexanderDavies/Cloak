@@ -26,6 +26,11 @@ public class KafkaProducerConfig {
   @Bean
   KafkaTemplate<String, OutboundEnvelope> envelopeKafkaTemplate(
       ProducerFactory<String, OutboundEnvelope> factory) {
-    return new KafkaTemplate<>(factory);
+    KafkaTemplate<String, OutboundEnvelope> template = new KafkaTemplate<>(factory);
+    // This template is hand-built, so spring.kafka.template.observation-enabled (which only affects
+    // Boot's auto-configured template) does not reach it. Enable it explicitly so the producer span
+    // joins the message trace (§10); the ObservationRegistry is resolved from the context.
+    template.setObservationEnabled(true);
+    return template;
   }
 }

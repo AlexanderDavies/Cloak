@@ -21,6 +21,8 @@ import org.slf4j.MDC;
 public record WrappedResponse<T>(T data, List<ApiError> errors, String traceId) {
 
   private static String currentTraceId() {
+    // Populated by Micrometer's tracing MDC bridge within the active observation scope (and, for
+    // untraced paths, by CorrelationFilter's fallback) — see CorrelationFilter for the full story.
     return MDC.get("traceId");
   }
 

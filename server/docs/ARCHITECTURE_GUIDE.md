@@ -861,6 +861,36 @@ public class CorrelationFilter extends OncePerRequestFilter {
 - Histograms for use-case latency, broken down by outcome (success / failure / retry).
 - Track **virtual-thread pinning** as a metric if you depend on third-party native code (`-Djdk.tracePinnedThreads=full` + log parser).
 
+### 10.5 Backend & local stack (implemented)
+
+The abstractions above are realised by **app-level OTLP push to an OpenTelemetry Collector seam**.
+Swapping vendor = re-point the Collector; **no application change**.
+
+- **Pipeline.** Micrometer (`micrometer-registry-otlp`) exports metrics; Micrometer Tracing over the
+  OpenTelemetry SDK exports spans; the OpenTelemetry Logback appender exports structured logs — all
+  over **OTLP** to a single endpoint. Locally that endpoint is **`grafana/otel-lgtm`** (Collector +
+  Prometheus + Loki + Tempo + Grafana) run from the `obs/` component and wired into `dev.sh`. In
+  production the same OTLP target is a standalone Collector.
+- **What's wired.** End-to-end trace **WS ingest → use-case → JDBC → Kafka producer/consumer** (one
+  connected trace); custom use-case metrics (`cloak.messages.routed`, the `cloak.message.route` timer
+  from `@Observed`) plus JVM / Hikari / Kafka-client metrics; structured JSON logs shipped to Loki and
+  correlated to traces by `trace_id`.
+- **Correlation.** The API envelope `traceId` / `X-Trace-Id` header **is the OTel trace id**
+  (`CorrelationFilter` sources it from the active span), so a client error reference resolves directly
+  to its Grafana/Tempo trace.
+- **Privacy (non-negotiable).** No ciphertext, message body, or PII in any signal; the recipient `sub`
+  is **never** a metric label (unbounded cardinality + PII). `TelemetryPrivacyIntegrationTest` asserts
+  this and must never be weakened to pass.
+- **Fail-open.** The OTLP exporters are async/non-blocking: if the Collector is down the app keeps
+  serving (verified — requests stay 200/401, never hang or 5xx).
+- **Boot 4 wiring note.** OpenTelemetry export is split across modules no starter pulls
+  (`spring-boot-opentelemetry`, `spring-boot-micrometer-tracing-opentelemetry`) and the OTLP property
+  prefixes differ per signal (`management.otlp.metrics.export.*` vs
+  `management.opentelemetry.tracing|logging.export.otlp.*`). See `server/build.gradle` and
+  `application.yml`.
+- **v1 scope.** One starter Grafana dashboard (`obs/dashboards/`). Deferred: infra-level receivers
+  (Kafka broker / Postgres), curated dashboards/SLOs, a standalone production Collector.
+
 ---
 
 ## 11. Configuration

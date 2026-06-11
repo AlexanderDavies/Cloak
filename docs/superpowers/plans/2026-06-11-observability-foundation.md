@@ -125,14 +125,68 @@ In `server/build.gradle` `dependencies {}`:
 implementation 'io.micrometer:micrometer-registry-otlp'
 implementation 'io.micrometer:micrometer-tracing-bridge-otel'
 implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
-implementation 'net.ttddyy.observation:datasource-micrometer-spring-boot:1.0.5'
-implementation 'org.springframework.boot:spring-boot-starter-aop'   // for @Observed (ObservedAspect)
+implementation 'org.springframework.boot:spring-boot-opentelemetry'   // Boot 4 OTel autoconfig module
+implementation 'net.ttddyy.observation:datasource-micrometer-spring-boot:2.2.1'
+implementation 'org.aspectj:aspectjweaver'   // for @Observed (ObservedAspect)
 
 integrationTestImplementation 'org.testcontainers:grafana'
 ```
 > Micrometer + OTel exporter versions are managed by the Spring Boot BOM (don't pin them). Confirm
 > `datasource-micrometer-spring-boot` and `org.testcontainers:grafana` resolve (`./gradlew dependencies
 > --configuration integrationTestRuntimeClasspath`); bump to the latest compatible if needed.
+>
+> **Deviations recorded at execution (2026-06-11):**
+> - `grafana/otel-lgtm` pinned to **0.28.0** (latest; plan draft said 0.8.1) — in `obs/docker-compose.yml`
+>   and `IntegrationTestBase`. The image ships `curl` (not `wget`), so the compose healthcheck uses curl.
+> - `datasource-micrometer-spring-boot` bumped **1.0.5 → 2.2.1**: 1.x targets Boot 3 and its
+>   `DataSourceObservationAutoConfiguration` references `o.s.b.actuate.autoconfigure.observation.
+>   ObservationRegistryCustomizer`, which Boot 4 relocated to `o.s.b.micrometer.observation.
+>   autoconfigure` → `NoClassDefFoundError` at context load. The 2.x line depends on the new Boot 4
+>   modules (`spring-boot-micrometer-observation/-metrics/-tracing`, `spring-boot-jdbc`).
+> - **Added `org.springframework.boot:spring-boot-opentelemetry`** (BOM-managed). Boot 4 extracted the
+>   OpenTelemetry autoconfig (`OpenTelemetryProperties` + SDK beans) into this module, and **none of the
+>   starters pull it**. Without it, `OtlpMetricsExportAutoConfiguration` (and the OTLP tracing autoconfig)
+>   silently `@ConditionalOnClass`-skip on `o.s.b.opentelemetry.autoconfigure.OpenTelemetryProperties`, so
+>   **nothing is exported** — metrics never reach Prometheus and the OTLP exporters stall. Diagnosed via
+>   the `--debug` condition-evaluation report. This is the single most important dependency for the whole
+>   plan.
+> - **`spring-boot-starter-aop` was discontinued in Spring Boot 4** (GA ends at 3.5.x; only a 4.0.0
+>   milestone exists, so the BOM-resolved 4.0.6 coordinate 404s). Replaced with BOM-managed
+>   `org.aspectj:aspectjweaver`, which puts AspectJ on the classpath and triggers Boot's
+>   `AopAutoConfiguration`; `spring-aop` arrives transitively via spring-context. `ObservedAspect` works
+>   the same.
+> - **Added `org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry`** (BOM-managed) —
+>   the analogue of `spring-boot-opentelemetry` for *tracing*: it provides `OpenTelemetryTracingAuto-
+>   Configuration` (the OTel `Tracer`) and `OtlpTracingAutoConfiguration` (the OTLP **span** exporter).
+>   `spring-boot-opentelemetry` only wires the SDK + OTLP *logging*; without this module spans are
+>   created but never exported (Tempo stays empty).
+> - **Boot 4 OTLP property prefixes differ per signal** (confirmed against the autoconfig `@Configuration-
+>   Properties`): metrics `management.otlp.metrics.export.url`; tracing
+>   `management.opentelemetry.tracing.export.otlp.endpoint` (the plan's `management.otlp.tracing.endpoint`
+>   is the Boot-3 name and is silently ignored); sampling stays `management.tracing.sampling.probability`.
+> - The message publisher uses a **hand-built `KafkaTemplate`** bean, so `spring.kafka.template.
+>   observation-enabled` (auto-template only) does not reach it — call `setObservationEnabled(true)` on the
+>   bean so the producer span joins the trace. The consumer uses Boot's auto factory, so
+>   `spring.kafka.listener.observation-enabled: true` is enough there.
+> - **OTLP logging (Task 6):** export prefix is `management.opentelemetry.logging.export.otlp.endpoint`
+>   (the plan's `management.otlp.logging.*` is wrong for Boot 4). Boot wires the SDK LoggerProvider +
+>   OTLP log exporter but **installs no Logback→OTel bridge**, so SLF4J logs never ship. Added
+>   `io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0:2.21.0-alpha` (alpha is its
+>   only line; not BOM-managed) and attach it to the root logger **programmatically** in
+>   `ObservabilityConfig` rather than via `logback-spring.xml` — a custom logback file silently
+>   overrides Boot's structured-console (`logging.structured.format.console: ecs`), so doing it in code
+>   keeps the ECS console. The appender captures the OTel trace context natively, so `trace_id`/`span_id`
+>   land as Loki labels; the test asserts via `{service_name="cloak-server"} | trace_id="<id>"`.
+>   **The appender version MUST track the `opentelemetry-api` the Boot BOM manages (1.55.0):** a newer
+>   appender calls `LogRecordBuilder.setException(Throwable)` (added in api 1.56.0) and throws
+>   `NoSuchMethodError` — an `Error`, so Logback's appender guard doesn't swallow it — on every
+>   exception-bearing log. `2.21.0-alpha` targets api 1.55.0. Guarded by
+>   `LoggingExceptionIntegrationTest` (the original `log.warn` test never carried a `Throwable`).
+> - Set the OTel **resource** `service.name=cloak-server` via `management.opentelemetry.resource-attributes`
+>   (the plan's `management.observations.key-values.service.name` only adds a metric tag / span attribute,
+>   not the resource attribute that labels every signal in Prometheus/Tempo/Loki).
+> - Resolved versions: `micrometer-registry-otlp` 1.16.5, `micrometer-tracing-bridge-otel` 1.6.5,
+>   `opentelemetry-exporter-otlp` 1.55.0, `org.testcontainers:grafana` 1.21.4 (via the pinned TC BOM).
 
 - [ ] **Step 2: Base OTLP config in `application.yml`**
 
