@@ -16,4 +16,7 @@ The iOS client for Cloak. End-to-end encrypted messaging with on-device AI infer
 
 ## Architecture
 
-Five layers — App, UI Feature, Page, Data, Foundation — with strict top-down dependencies. See `CLAUDE.md` for the full architecture diagram and rules.
+Layered SwiftPM modules — **App → Feature → Data → Foundation** — with the dependency direction
+**compile-enforced** by the package graph, SwiftUI + `@Observable`, GRDB + SQLCipher encrypted-at-rest
+storage, and a mock-based (no-backend) test suite. The full, opinionated guide is
+**[`docs/ARCHITECTURE_GUIDE.md`](docs/ARCHITECTURE_GUIDE.md)**; `CLAUDE.md` is the short pointer into it.
