@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Only the custom keys live here; GENERATE_INFOPLIST_FILE injects the standard ones
+       (CFBundleIdentifier/Executable/version) and the launch screen. -->
+  <!-- Local-dev only: allow cleartext http/ws to the locally-run server + Keycloak (localhost).
+       Production uses TLS (https/wss) with pinning (guide §16) — no ATS exception there. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+    <key>NSExceptionDomains</key>
+    <dict>
+      <key>localhost</key>
+      <dict>
+        <key>NSExceptionAllowsInsecureHTTPLoads</key>
+        <true/>
+      </dict>
+    </dict>
+  </dict>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLSchemes</key>
+      <array><string>com.cloak.app</string></array>
+    </dict>
+  </array>
+</dict>
+</plist>

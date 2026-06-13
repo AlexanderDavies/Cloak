@@ -34,7 +34,18 @@ The `cloak` realm is auto-imported from [`realm/cloak-realm.json`](realm/cloak-r
 | `cloak-api` | Bearer-only | The server as resource server; tokens carry `aud: cloak-api` |
 | `cloak-test` | Public, direct-access grants | **Test-only.** Used exclusively to mint tokens in integration tests (direct password grant). Not used by the app. |
 
-The realm also seeds two local test users (`alice`/`bob`, password `password`) for use in integration tests. These exist for local dev and automated testing only — not in production.
+### Seeded users (local dev only)
+
+The realm seeds two users — used both by the server integration tests (direct grant) and to **sign into the app locally**:
+
+| Username | Password | `sub` (stable, = Keycloak user id) |
+|----------|----------|------------------------------------|
+| `alice` | `password` | `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa` |
+| `bob` | `password` | `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb` |
+
+The `sub`s are **fixed in the realm import** so they're stable across re-imports and usable as message
+recipients (the server routes by `sub`). These users exist for local dev and automated testing only —
+**never in production**. (Admin console: `admin`/`admin`, also local-dev only.)
 
 Edit `cloak-realm.json` to change realm config (config-as-code). Changing the realm name, client ids, redirect scheme, or audience is a contract change — coordinate with the app and server.
 

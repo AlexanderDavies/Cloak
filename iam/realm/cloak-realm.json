@@ -7,6 +7,7 @@
   "duplicateEmailsAllowed": false,
   "users": [
     {
+      "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
       "username": "alice",
       "enabled": true,
       "email": "alice@example.com",
@@ -17,6 +18,7 @@
       "credentials": [{ "type": "password", "value": "password", "temporary": false }]
     },
     {
+      "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
       "username": "bob",
       "enabled": true,
       "email": "bob@example.com",

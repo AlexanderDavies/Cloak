@@ -723,6 +723,12 @@ protocol MessageCrypto: Sendable {
 The concrete drives the libsignal session cipher; callers (the `MessageRepository`) only see `Data` in and
 `Ciphertext` out. No libsignal type appears above this boundary.
 
+> **Integration note:** libsignal is **not consumable via SwiftPM** — it has no root `Package.swift` (the
+> manifest lives under `swift/`) and its README states *"Use as a Swift Package … is not supported"*.
+> Integrate it via **CocoaPods** (`pod 'LibSignalClient'`, Signal's canonical path) or the prebuilt iOS
+> **XCFramework** the releases ship. It is the one dependency that breaks the otherwise-SwiftPM toolchain
+> (§15.1); confine it to `CloakFoundationEncryption` so nothing else is affected.
+
 ### 7.2 `SignalProtocolStore` over the encrypted store
 
 libsignal needs identity, prekey, signed-prekey, and session stores. Implement them **backed by GRDB +
@@ -1132,9 +1138,16 @@ drifts — so mocking can't silently diverge from the real server (§8.7).
 
 ### 14.5 Coverage gate
 
-`./app/scripts/coverage.sh` enforces **≥90% line coverage on meaningful files**; `*View.swift`, the app
-entry, and generated code are excluded from the denominator (§15.3). The gate fails the build below
-threshold.
+`./app/scripts/coverage.sh` enforces **≥90% line coverage on meaningful files** — and counts only the
+app's own sources, never third-party packages. Excluded from the denominator (§15.3):
+- `*View.swift`, the app entry, and generated code (pure declarative / glue);
+- **platform-edge adapters** — concrete implementations that only delegate to Apple or third-party SDKs
+  (the real `WebSocketMessageTransport`, the AppAuth `AuthService`, a Keychain `KeyStorage`). They have no
+  meaningful unit-test surface and are verified by **manual E2E** against the real backend, since the iOS
+  app deliberately can't integration-test them the way the server tests its adapters on Testcontainers.
+  Their *logic-bearing* parts (e.g. envelope encoding) are extracted and unit-tested separately.
+
+The gate fails the build below threshold.
 
 ### 14.6 Test naming
 

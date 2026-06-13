@@ -1,0 +1,12 @@
+strict: true
+disabled_rules:
+  - todo
+excluded:
+  - ${PWD}/.build
+  - ${PWD}/build
+opt_in_rules:
+  - empty_count
+  - force_unwrapping
+line_length:
+  warning: 120
+  error: 160

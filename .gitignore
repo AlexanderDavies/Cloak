@@ -22,3 +22,9 @@ out/
 
 # Visual brainstorming companion (local mockups)
 .superpowers/
+
+# iOS / Xcode
+app/*.xcodeproj
+app/build/
+DerivedData/
+.swiftpm/
