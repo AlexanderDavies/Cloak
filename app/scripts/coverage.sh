@@ -16,7 +16,7 @@ SIM=${SIM:-iPhone 17}
 # The transport's *pure* logic (envelope encode/decode) lives on MessageEnvelope, NOT in the excluded
 # adapter, so it IS counted; its error-surfacing contract is covered via the mock at the view-model
 # level. Only the URLSession plumbing (connect/send/receiveLoop) stays excluded here.
-EXCLUDE_REGEX='(View\.swift|CloakApp\.swift|WebSocketMessageTransport\.swift|AuthService\.swift|\.generated\.swift)$'
+EXCLUDE_REGEX='(View\.swift|CloakApp\.swift|WebSocketMessageTransport\.swift|AuthService\.swift|URLSessionHTTPRunner\.swift|\.generated\.swift)$'
 DERIVED=build/derived
 RESULT="$DERIVED/TestResults.xcresult"
 
@@ -28,6 +28,7 @@ xcrun simctl bootstatus "$SIM" -b >/dev/null 2>&1 || true
 
 rm -rf "$RESULT"   # deterministic, single result bundle
 xcodebuild test \
+  -workspace Cloak.xcworkspace \
   -scheme Cloak \
   -destination "platform=iOS Simulator,name=$SIM" \
   -derivedDataPath "$DERIVED" \
@@ -35,13 +36,14 @@ xcodebuild test \
   -enableCodeCoverage YES \
   -quiet
 
-REPORT=$(xcrun xccov view --report --json "$RESULT")
+REPORT_FILE="$DERIVED/coverage.json"
+xcrun xccov view --report --json "$RESULT" > "$REPORT_FILE"
 
 # Count only the app's own sources (path under /app/Cloak/), excluding third-party package
 # checkouts and the view/app-entry/generated files matched by EXCLUDE_REGEX.
-python3 - "$REPORT" "$EXCLUDE_REGEX" "$THRESHOLD" <<'PY'
+python3 - "$REPORT_FILE" "$EXCLUDE_REGEX" "$THRESHOLD" <<'PY'
 import json, re, sys
-report = json.loads(sys.argv[1]); pattern = re.compile(sys.argv[2]); threshold = float(sys.argv[3])
+report = json.load(open(sys.argv[1])); pattern = re.compile(sys.argv[2]); threshold = float(sys.argv[3])
 covered = executable = 0
 counted = []
 for target in report.get("targets", []):

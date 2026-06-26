@@ -5,34 +5,48 @@ The iOS client for Cloak. End-to-end encrypted messaging with on-device AI infer
 ## Prerequisites
 
 - Xcode 16+ (verified on 26.5) with an installed iOS 17+ simulator runtime
-- `brew install xcodegen swiftlint`
+- `brew install xcodegen swiftlint cocoapods`
 - Backend infra for manual end-to-end (`../dev.sh up` — see `../server/README.md`)
 
 ## Run locally
 
 ```bash
 cd app
-xcodegen generate          # produces Cloak.xcodeproj (git-ignored)
-open Cloak.xcodeproj        # then Cmd+R on an iOS 17+ simulator
+xcodegen generate          # regenerates Cloak.xcodeproj (git-ignored)
+pod install                # fetches LibSignalClient + GRDB/SQLCipher; creates Cloak.xcworkspace
+open Cloak.xcworkspace     # always open the workspace, never the bare .xcodeproj
+# Cmd+R on an iOS 17+ simulator
 ```
 
-The app signs in via Keycloak (OIDC-PKCE) and sends/receives an opaque ciphertext blob over the
-authenticated WebSocket. (Real E2EE via libsignal and on-device AI arrive in later slices.)
+> `Pods/` and `Cloak.xcworkspace` are git-ignored. Run `xcodegen generate && pod install` after
+> cloning or rebasing to recreate them. `Podfile` and `Podfile.lock` are tracked.
 
-**Sign in** with a seeded local user — `alice` or `bob`, password `password` (see `../iam/README.md`).
-Use the iOS **Simulator** so `localhost` reaches your local server.
+> **Bumping libsignal:** update BOTH the `tag:` in `Podfile` AND the
+> `LIBSIGNAL_FFI_PREBUILD_CHECKSUM` to the SHA-256 from the matching GitHub release asset
+> (`libsignal-client-ios-build-<tag>.tar.gz.sha256`). A mismatch is a hard build error.
 
-**Two-simulator round-trip:** run the app on two simulators, sign in as `alice` on one and `bob` on the
-other. Each screen shows **You: \<your sub\>**, and the **Recipient sub** field auto-defaults to the
-*other* seeded user — so Alice→Bob and Bob→Alice both work out of the box. (You can also paste any other
-signed-in user's `sub` into the field manually.)
+## Onboarding flow (Slice 1)
 
-Press **Return** (with the Simulator's hardware keyboard connected) or tap **Send** to send a message.
+After signing in via Keycloak (OIDC-PKCE), the app runs the Slice 1 onboarding flow:
 
-The server routes by `sub`, so a message only arrives if its recipient `sub` matches a signed-in user —
-**including yourself**: setting the recipient to your own `sub` delivers the message back to you (shows as
-an incoming bubble on your own device). Picking recipients by contact/handle instead of raw `sub` is a
-later slice.
+1. **Login** — a Cloak-branded Keycloak login page (OIDC-PKCE). Self-registration is enabled; new users
+   can create an account directly from the login screen.
+2. **"Setting up secure keys…"** — the app generates a libsignal device-key bundle entirely on-device
+   (identity key pair, signed prekey, 100 one-time prekeys). The public bundle is published to the server
+   via `PUT /v1/keys`. **Private keys never leave the device**; they are stored in the
+   SQLCipher-encrypted on-device database (GRDB + SQLCipher, passphrase held in the iOS Keychain).
+3. **Empty conversation list** — the destination screen. Messaging is added in Slice 2.
+
+Key generation uses [LibSignalClient](https://github.com/signalapp/libsignal) (CocoaPods, prebuilt FFI
+binary). The on-device database is encrypted via GRDB/SQLCipher; the passphrase is a 32-byte random
+secret stored in the iOS Keychain (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`).
+
+Registration is idempotent: if the app is force-quit during setup, the next launch retries without
+regenerating keys.
+
+**Sign in** with a seeded local user — `alice` or `bob`, password `password` (see `../iam/README.md`) —
+or self-register a new account via the branded login page. Use the iOS **Simulator** so `localhost`
+reaches your local server.
 
 > If `xcodebuild` can't find Xcode (CLT is the default toolchain), prefix commands with
 > `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` or run `sudo xcode-select -s` once.
@@ -41,7 +55,7 @@ later slice.
 
 ```bash
 cd app
-xcodegen generate
+xcodegen generate && pod install
 SIM="iPhone 17" ./scripts/coverage.sh   # Swift Testing + coverage; fails below 90%
 ```
 

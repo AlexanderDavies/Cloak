@@ -39,6 +39,14 @@ Use `./dev.sh down` to stop everything, or run `docker compose up -d` inside an 
 
 The iOS app is run via Xcode — open `app/` once the project is initialised.
 
+## What's in each slice
+
+| Slice | Scope |
+|-------|-------|
+| Phase 0 | Server skeleton (auth, E2EE message round-trip, observability) + iOS skeleton (OIDC-PKCE login, WebSocket transport, Phase 0 demo UI) |
+| **Slice 1** | **Device key registration** — on login, the iOS app generates a libsignal key bundle on-device, publishes the public bundle to the server (`PUT /v1/keys`), and stores private keys in the SQLCipher-encrypted on-device DB. Adds a Cloak-branded Keycloak login theme with **self-registration** enabled. |
+| Slice 2+ | Encrypted messaging, contact management, multi-device, on-device AI |
+
 ## Prerequisites
 
 - Java 25+

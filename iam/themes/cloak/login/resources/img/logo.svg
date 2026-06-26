@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="48" viewBox="0 0 160 48">
+  <rect x="0" y="4" width="40" height="40" rx="10" fill="#6D28D9"/>
+  <text x="20" y="33" font-family="-apple-system,Helvetica,Arial" font-size="26" font-weight="700"
+        fill="#fff" text-anchor="middle">C</text>
+  <circle cx="33" cy="13" r="5" fill="#22C55E"/>
+  <text x="52" y="33" font-family="-apple-system,Helvetica,Arial" font-size="24" font-weight="700"
+        fill="#6D28D9">Cloak</text>
+</svg>
