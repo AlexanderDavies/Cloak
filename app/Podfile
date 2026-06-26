@@ -1,0 +1,16 @@
+platform :ios, '17.0'
+install! 'cocoapods', integrate_targets: true
+
+# LibSignalClient is not on the CocoaPods trunk CDN; it is sourced directly from the official
+# Signal GitHub repository and uses a prebuilt binary (no Rust toolchain required at build time).
+# Checksum is for the prebuild binary of the pinned release tag.
+ENV['LIBSIGNAL_FFI_PREBUILD_CHECKSUM'] = 'd43c01e3e76d48de8070dc750f084cd1f2e78787cf6e88fcf4b5dfea2efb9af1'
+
+target 'Cloak' do
+  use_frameworks!
+  pod 'LibSignalClient', git: 'https://github.com/signalapp/libsignal.git', tag: 'v0.96.2'
+  pod 'GRDB.swift/SQLCipher'
+  target 'CloakTests' do
+    inherit! :search_paths
+  end
+end

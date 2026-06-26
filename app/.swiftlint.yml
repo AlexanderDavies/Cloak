@@ -4,6 +4,7 @@ disabled_rules:
 excluded:
   - ${PWD}/.build
   - ${PWD}/build
+  - Pods
 opt_in_rules:
   - empty_count
   - force_unwrapping

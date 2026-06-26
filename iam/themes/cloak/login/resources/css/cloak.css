@@ -1,0 +1,36 @@
+:root {
+  --cloak-primary: #6D28D9; --cloak-primary-pressed: #5B21B6; --cloak-on-primary: #FFFFFF;
+  --cloak-success: #22C55E;
+  --cloak-canvas: #FFFFFF; --cloak-surface: #F5F5F7; --cloak-separator: rgba(0,0,0,.08);
+  --cloak-text: #1D1D1F; --cloak-text-secondary: #6B7280;
+  --cloak-radius-sm: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cloak-canvas: #0B0B0F; --cloak-surface: #1C1C22; --cloak-separator: rgba(255,255,255,.08);
+    --cloak-text: #F5F5F7; --cloak-text-secondary: #9CA3AF;
+  }
+}
+body, .login-pf, .login-pf body {
+  background: var(--cloak-canvas); color: var(--cloak-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+.login-pf-page { padding-top: 48px; }
+#kc-header, #kc-header-wrapper { color: var(--cloak-text); font-weight: 700; }
+.card-pf {
+  background: var(--cloak-surface); border: 1px solid var(--cloak-separator);
+  border-radius: 22px; box-shadow: none;
+}
+/* Brand wordmark emitted by the overridden template.ftl (#kc-logo <img>). */
+#kc-header-wrapper { padding: 0; }
+#kc-logo { display: block; height: 44px; width: auto; margin: 0 auto; }
+input[type=text], input[type=password], input[type=email] {
+  background: var(--cloak-canvas); border: 1px solid var(--cloak-separator);
+  border-radius: var(--cloak-radius-sm); color: var(--cloak-text);
+}
+.btn-primary, input[type=submit].btn-primary {
+  background: var(--cloak-primary); border-color: var(--cloak-primary);
+  border-radius: var(--cloak-radius-sm); color: var(--cloak-on-primary);
+}
+.btn-primary:hover, .btn-primary:active { background: var(--cloak-primary-pressed); }
+a { color: var(--cloak-primary); }

@@ -122,6 +122,16 @@ public class GlobalExceptionHandler {
                 ApiError.of("UNSUPPORTED_MEDIA_TYPE", "The request media type is not supported.")));
   }
 
+  /** Domain structural validation failure — e.g. bad key length, duplicate prekey ids. */
+  @ExceptionHandler(IllegalArgumentException.class)
+  public ResponseEntity<WrappedResponse<Void>> onIllegalArgument(
+      IllegalArgumentException ex, HttpServletRequest request) {
+    log.warn("Invalid argument on {}: {}", request.getRequestURI(), ex.getMessage());
+    String msg = ex.getMessage() != null ? ex.getMessage() : "Invalid request.";
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(WrappedResponse.error(ApiError.of("INVALID_REQUEST", msg)));
+  }
+
   /** Catch-all — never leak the cause; log the stack trace server-side only. */
   @ExceptionHandler(Exception.class)
   public ResponseEntity<WrappedResponse<Void>> onUnexpected(

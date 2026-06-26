@@ -166,6 +166,29 @@ class GlobalExceptionHandlerTest {
   }
 
   @Test
+  void illegalArgument_returns400_invalidRequest() {
+    IllegalArgumentException ex = new IllegalArgumentException("identityKey must be 33 bytes");
+
+    ResponseEntity<WrappedResponse<Void>> response = handler.onIllegalArgument(ex, request);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    ApiError error = response.getBody().errors().get(0);
+    assertThat(error.code()).isEqualTo("INVALID_REQUEST");
+    assertThat(error.message()).isEqualTo("identityKey must be 33 bytes");
+  }
+
+  @Test
+  void illegalArgument_withNullMessage_returns400_fallbackMessage() {
+    IllegalArgumentException ex = new IllegalArgumentException((String) null);
+
+    ResponseEntity<WrappedResponse<Void>> response = handler.onIllegalArgument(ex, request);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(response.getBody().errors().get(0).code()).isEqualTo("INVALID_REQUEST");
+    assertThat(response.getBody().errors().get(0).message()).isEqualTo("Invalid request.");
+  }
+
+  @Test
   void unexpectedException_returns500_safeGenericMessage() {
     RuntimeException cause = new RuntimeException("SELECT secret FROM users; ciphertext-leak");
 

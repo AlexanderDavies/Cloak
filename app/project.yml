@@ -26,6 +26,10 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon   # home-screen icon (Cloak/Assets.xcassets)
+        # LibSignalClient (CocoaPods) depends on SignalFfi, a C module whose module.modulemap lives
+        # in the Pod sources. Xcode needs this on SWIFT_INCLUDE_PATHS so it can resolve the
+        # transitive dependency when compiling any target that imports LibSignalClient.
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(PODS_ROOT)/LibSignalClient/swift/Sources/SignalFfi"
     dependencies:
       - package: AppAuth
     preBuildScripts:
@@ -48,6 +52,8 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES   # test bundle Info.plist is auto-generated
         SWIFT_VERSION: "6.0"
+        # Same SignalFfi include path required for any target that transitively imports LibSignalClient.
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(PODS_ROOT)/LibSignalClient/swift/Sources/SignalFfi"
     dependencies:
       - target: Cloak
 schemes:

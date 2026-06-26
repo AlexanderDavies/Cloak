@@ -12,6 +12,7 @@ import org.testcontainers.grafana.LgtmStackContainer;
 import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.utility.MountableFile;
 
 /**
  * Base class for {@code @SpringBootTest} integration tests. Boots a single shared set of
@@ -51,9 +52,12 @@ public abstract class IntegrationTestBase {
 
   // Imports the seeded realm (alice/bob + cloak-test client) from iam/realm/cloak-realm.json,
   // copied onto the integrationTest classpath under realms/ by processIntegrationTestResources.
+  // The cloak login theme is copied into the container so LoginThemeIntegrationTest can assert it.
   static final KeycloakContainer KEYCLOAK =
       new KeycloakContainer("quay.io/keycloak/keycloak:26.0")
-          .withRealmImportFile("/realms/cloak-realm.json");
+          .withRealmImportFile("/realms/cloak-realm.json")
+          .withCopyFileToContainer(
+              MountableFile.forHostPath("../iam/themes/cloak"), "/opt/keycloak/themes/cloak");
 
   // All-in-one OTel Collector + Prometheus + Loki + Tempo + Grafana. The app exports OTLP here;
   // tests

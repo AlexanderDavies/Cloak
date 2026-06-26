@@ -75,6 +75,31 @@ Authorization: Bearer <Keycloak access token>
      when the token is missing, expired, or fails audience validation
 ```
 
+### `PUT /v1/keys`
+
+Publishes (or replaces) the calling device's public Signal Protocol prekey bundle. The server
+records public key material only — private keys never leave the device. Idempotent: a second PUT
+replaces the existing bundle for the same `(owner, deviceId)` pair.
+
+```
+Authorization: Bearer <Keycloak access token>
+Content-Type: application/json
+
+{
+  "registrationId": 12345,
+  "deviceId": 1,
+  "identityKey": "<base64, 33 bytes>",
+  "signedPreKey": { "keyId": 1, "publicKey": "<base64, 33 bytes>", "signature": "<base64, 64 bytes>" },
+  "oneTimePreKeys": [ { "keyId": 1, "publicKey": "<base64, 33 bytes>" } ]
+}
+
+→ 204 No Content     on success
+→ 400 Bad Request    when key bytes have wrong length, duplicate one-time prekey ids, or missing fields
+→ 401 Unauthorized   when the token is missing, expired, or fails audience validation
+```
+
+The owner `sub` is taken from the validated JWT — the body never carries the caller's identity.
+
 ### `/ws` — WebSocket
 
 Requires `Authorization: Bearer <Keycloak access token>` at the HTTP upgrade handshake.
