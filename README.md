@@ -16,7 +16,7 @@ A privacy-first, end-to-end encrypted messaging app. Messages are encrypted on-d
 ## Architecture
 
 - **Transport:** WebSockets, with automatic fallback to long-polling
-- **Encryption:** End-to-end — encrypt/decrypt on device only
+- **Encryption:** End-to-end — encrypt/decrypt on device only (Signal X3DH/PQXDH + Double Ratchet via libsignal). For a from-first-principles walkthrough of the whole scheme, see **[`docs/ENCRYPTION.md`](docs/ENCRYPTION.md)**.
 - **Identity:** Keycloak — user accounts and authentication via OpenID Connect (OAuth 2.0); the server validates JWTs and never handles passwords
 - **Storage:** PostgreSQL — encrypted message history and public key registry
 - **Delivery:** Kafka — async fan-out to offline and multi-device recipients
@@ -45,7 +45,8 @@ The iOS app is run via Xcode — open `app/` once the project is initialised.
 |-------|-------|
 | Phase 0 | Server skeleton (auth, E2EE message round-trip, observability) + iOS skeleton (OIDC-PKCE login, WebSocket transport, Phase 0 demo UI) |
 | **Slice 1** | **Device key registration** — on login, the iOS app generates a libsignal key bundle on-device, publishes the public bundle to the server (`PUT /v1/keys`), and stores private keys in the SQLCipher-encrypted on-device DB. Adds a Cloak-branded Keycloak login theme with **self-registration** enabled. |
-| Slice 2+ | Encrypted messaging, contact management, multi-device, on-device AI |
+| **Slice 2** | **Real E2EE messaging** — user lookup (`GET /v1/users/lookup`), prekey-bundle fetch with atomic one-time-prekey consumption (`GET /v1/keys/{sub}`), PQXDH (X3DH + ML-KEM-1024) session establishment, and an end-to-end chat thread (start-conversation + chat UI). See [`docs/ENCRYPTION.md`](docs/ENCRYPTION.md) for the full cryptographic scheme. |
+| Slice 3+ | Message persistence, contact management, multi-device, on-device AI |
 
 ## Prerequisites
 

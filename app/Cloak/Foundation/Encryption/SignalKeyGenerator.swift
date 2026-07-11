@@ -25,11 +25,21 @@ enum SignalKeyGenerator {
             OneTimePreKeyRecord(id: UInt32(index), keyPair: PrivateKey.generate())
         }
 
+        // PQXDH: generate a last-resort ML-KEM-1024 (Kyber) prekey and sign it with the
+        // identity private key, using the same XEdDSA signing call as the signed EC prekey.
+        let kyberPair = KEMKeyPair.generate()
+        let kyberPreKeyId: UInt32 = 1
+        let kyberSignature = identityKeyPair.privateKey.generateSignature(
+            message: kyberPair.publicKey.serialize())
+
         return GeneratedDeviceKeys(
             registrationId: registrationId,
             identityKeyPair: identityKeyPair,
             signedPreKey: SignedPreKeyRecord(id: signedId, keyPair: signedKeyPair),
             signedPreKeySignature: signature,
-            oneTimePreKeys: oneTimePreKeys)
+            oneTimePreKeys: oneTimePreKeys,
+            kyberPreKey: kyberPair,
+            kyberPreKeyId: kyberPreKeyId,
+            kyberPreKeySignature: kyberSignature)
     }
 }

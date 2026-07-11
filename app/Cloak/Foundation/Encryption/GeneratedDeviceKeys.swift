@@ -22,4 +22,10 @@ struct GeneratedDeviceKeys {
     /// Signature of `signedPreKey.keyPair.publicKey` by the identity private key. (`Data`)
     let signedPreKeySignature: Data
     let oneTimePreKeys: [OneTimePreKeyRecord]
+    /// Last-resort ML-KEM-1024 (Kyber) key pair (PQXDH).
+    let kyberPreKey: KEMKeyPair
+    /// Key identifier for the Kyber prekey; non-zero.
+    let kyberPreKeyId: UInt32
+    /// XEdDSA signature of `kyberPreKey.publicKey.serialize()` by the identity private key.
+    let kyberPreKeySignature: Data
 }

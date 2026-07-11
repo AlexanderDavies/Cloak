@@ -17,7 +17,7 @@ import tools.jackson.databind.json.JsonMapper;
  * Authenticated inbound WebSocket adapter. The {@code /ws} HTTP upgrade is authenticated by the
  * resource-server filter chain, so {@link WebSocketSession#getPrincipal()} carries the {@link
  * JwtAuthenticationToken}. The sender is always derived from that validated token's {@code sub} —
- * never from the client frame (sender-spoofing trust rule, per the Phase 0 envelope contract).
+ * never from the client frame (sender-spoofing trust rule; see slice2-message-envelope.md).
  *
  * <p>The {@code ciphertext} is opaque base64; it is decoded only to pass the raw bytes to the use
  * case and is never logged or inspected (§0.6.4 privacy).
@@ -84,7 +84,9 @@ public class MessageWebSocketHandler extends TextWebSocketHandler {
                       env.messageId(),
                       sub(session), // sender = authenticated principal, never a client field
                       env.toSub(),
-                      env.deviceId(),
+                      env.fromDeviceId(),
+                      env.toDeviceId(),
+                      env.messageType(),
                       Base64.getDecoder().decode(env.ciphertext())));
             });
   }

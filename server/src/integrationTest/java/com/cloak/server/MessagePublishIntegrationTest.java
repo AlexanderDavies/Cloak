@@ -32,7 +32,9 @@ class MessagePublishIntegrationTest extends IntegrationTestBase {
             new MessageId("44444444-4444-4444-4444-444444444444"),
             "alice-sub",
             "bob-sub",
-            null,
+            1,
+            1,
+            3,
             new Ciphertext(cipher)));
 
     var props =
@@ -63,6 +65,10 @@ class MessagePublishIntegrationTest extends IntegrationTestBase {
                       assertThat(r.key()).isEqualTo("bob-sub");
                       var env = (OutboundEnvelope) r.value();
                       assertThat(env.getCiphertext().array()).containsExactly(cipher);
+                      assertThat(env.getFromSub().toString()).isEqualTo("alice-sub");
+                      assertThat(env.getToDeviceId()).isEqualTo(1);
+                      assertThat(env.getFromDeviceId()).isEqualTo(1);
+                      assertThat(env.getMessageType()).isEqualTo(3);
                     });
               });
     }

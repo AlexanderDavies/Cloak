@@ -14,5 +14,7 @@ Rules:
 
 ## Contracts
 
-- phase0-message-envelope.md — WebSocket message envelope (Phase 0).
-- slice1-device-key-bundle.md — PUT /v1/keys public prekey bundle (Slice 1).
+- slice1-device-key-bundle.md — `PUT /v1/keys` public prekey bundle publish (Slice 1).
+- slice2-user-lookup.md — `GET /v1/users/lookup` exact-match handle → sub (Slice 2).
+- slice2-prekey-bundle.md — `GET /v1/keys/{sub}` prekey bundle fetch with PQXDH Kyber key (Slice 2).
+- slice2-message-envelope.md — WebSocket message envelope with integer device ids and messageType (Slice 2; supersedes phase0-message-envelope).

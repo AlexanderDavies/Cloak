@@ -28,9 +28,28 @@
       "lastName": "Example",
       "requiredActions": [],
       "credentials": [{ "type": "password", "value": "password", "temporary": false }]
+    },
+    {
+      "username": "service-account-cloak-server-admin",
+      "enabled": true,
+      "serviceAccountClientId": "cloak-server-admin",
+      "clientRoles": {
+        "realm-management": ["view-users"]
+      }
     }
   ],
   "clients": [
+    {
+      "clientId": "cloak-server-admin",
+      "name": "Cloak server admin service account (dev only — never production)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "secret": "cloak-server-admin-dev-secret"
+    },
     {
       "clientId": "cloak-ios",
       "name": "Cloak iOS app",

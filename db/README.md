@@ -27,6 +27,14 @@ Connection (local dev): `postgresql://cloak:cloak@localhost:5432/cloak`
 
 Flyway SQL lives in `migrations/`, named `V{n}__{description}.sql`. It is the single source of truth for the schema; the server consumes the same scripts. Migrations are forward-only — fix-forward with a new file, never edit a merged one.
 
+| Migration | Description |
+|-----------|-------------|
+| `V1` | Baseline — `encrypted_message` history table + `device` registry |
+| `V2` | Slice 1 — Signal prekey registry: `signed_prekey` and `one_time_prekey` (with `consumed_at` for atomic X3DH consumption) |
+| `V3` | Slice 2 — `kyber_prekey` table for ML-KEM-1024 (PQXDH last-resort Kyber key per device) |
+
+**One-time prekey consumption:** `GET /v1/keys/{sub}` atomically claims one row from `one_time_prekey` by setting `consumed_at`. Available keys have `consumed_at IS NULL`; consumed ones are retained for auditability.
+
 ## Architecture & conventions
 
 See [`CLAUDE.md`](CLAUDE.md) for the schema overview, privacy guardrails (ciphertext-only, minimal metadata), and migration rules.

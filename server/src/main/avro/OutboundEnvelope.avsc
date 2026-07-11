@@ -7,7 +7,9 @@
     { "name": "messageId", "type": "string" },
     { "name": "toSub", "type": "string" },
     { "name": "fromSub", "type": "string" },
-    { "name": "deviceId", "type": ["null", "string"], "default": null },
+    { "name": "toDeviceId", "type": "int", "default": 1 },
+    { "name": "fromDeviceId", "type": "int", "default": 1 },
+    { "name": "messageType", "type": "int", "default": 2, "doc": "2=normal SignalMessage, 3=PreKeySignalMessage; default keeps the schema BACKWARD-compatible" },
     { "name": "ciphertext", "type": "bytes", "doc": "opaque; the server never decrypts" }
   ]
 }

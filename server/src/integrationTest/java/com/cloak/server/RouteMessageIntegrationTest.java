@@ -19,7 +19,7 @@ class RouteMessageIntegrationTest extends IntegrationTestBase {
   void routedMessage_isPersisted_andRetrievable() {
     byte[] cipher = {7, 7, 7};
     var id = "55555555-5555-5555-5555-555555555555";
-    useCase.route(new RouteMessageCommand(id, "alice-sub", "bob-sub", null, cipher));
+    useCase.route(new RouteMessageCommand(id, "alice-sub", "bob-sub", 1, 1, 2, cipher));
     assertThat(repository.find(new MessageId(id)).orElseThrow().ciphertext().value())
         .containsExactly(cipher);
   }

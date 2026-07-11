@@ -40,6 +40,14 @@ struct GRDBDeviceKeyVault: DeviceKeyVault {
             privateKey: keys.signedPreKey.keyPair,
             signature: keys.signedPreKeySignature)
         try store.storeSignedPreKey(signedRecord, id: keys.signedPreKey.id, context: NullContext())
+
+        // Persist the last-resort Kyber (PQXDH) prekey private material.
+        let kyberRecord = try KyberPreKeyRecord(
+            id: keys.kyberPreKeyId,
+            timestamp: timestamp,
+            keyPair: keys.kyberPreKey,
+            signature: keys.kyberPreKeySignature)
+        try store.storeKyberPreKey(kyberRecord, id: keys.kyberPreKeyId, context: NullContext())
     }
 
     func hasIdentity() -> Bool {

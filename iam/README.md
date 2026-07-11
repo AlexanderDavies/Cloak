@@ -33,6 +33,7 @@ The `cloak` realm is auto-imported from [`realm/cloak-realm.json`](realm/cloak-r
 | `cloak-ios` | Public, PKCE (S256) | The iOS app — redirect `com.cloak.app://oauth-callback/*` |
 | `cloak-api` | Bearer-only | The server as resource server; tokens carry `aud: cloak-api` |
 | `cloak-test` | Public, direct-access grants | **Test-only.** Used exclusively to mint tokens in integration tests (direct password grant). Not used by the app. |
+| `cloak-server-admin` | Confidential, service account (client credentials) | **Slice 2 — server-side user lookup.** The server calls Keycloak's Admin REST API to resolve a handle to a `sub`. Requires the `view-users` realm role. Configured via `cloak.keycloak-admin.*` in `application.yml`. **Never used by clients.** |
 
 ### Seeded users (local dev only)
 

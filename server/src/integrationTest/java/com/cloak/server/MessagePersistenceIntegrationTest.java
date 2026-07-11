@@ -18,10 +18,9 @@ class MessagePersistenceIntegrationTest extends IntegrationTestBase {
   void savedMessage_reloadsCiphertextUnchanged() {
     byte[] cipher = {4, 8, 15, 16, 23, 42};
     var id = new MessageId("22222222-2222-2222-2222-222222222222");
-    // deviceId is null: encrypted_message.device_id has an FK to device(id) (added in
-    // Plan 1's code review), and no device row is seeded here. The test's intent is the
-    // byte-for-byte ciphertext round-trip; multi-device targeting arrives in a later slice.
-    repository.save(Message.create(id, "alice-sub", "bob-sub", null, new Ciphertext(cipher)));
+    // device_id column is left null (Slice 2): integer device numbers are not persisted until
+    // Slice 3. The test's intent is the byte-for-byte ciphertext round-trip.
+    repository.save(Message.create(id, "alice-sub", "bob-sub", 1, 1, 2, new Ciphertext(cipher)));
 
     var loaded = repository.find(id).orElseThrow();
     assertThat(loaded.ciphertext().value()).containsExactly(cipher);

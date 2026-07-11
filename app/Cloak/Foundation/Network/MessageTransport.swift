@@ -1,12 +1,45 @@
 import Foundation
 
-/// Wire envelope (matches docs/contracts/phase0-message-envelope.md).
+/// Signal message type carried in the wire envelope.
+/// Raw values match the libsignal integer wire representation.
+enum SignalMessageType: Int, Codable, Sendable {
+    case normal = 2
+    case preKey = 3
+}
+
+/// Wire envelope (matches docs/contracts/fixtures/slice2-message-envelope.json).
 /// `ciphertext` is base64 of opaque bytes; the client base64-decodes for display.
+///
+/// `fromSub` is present only on the **delivery** frame (server→client), server-stamped from the
+/// sender's validated JWT `sub`; it is `nil` on the **inbound** frame the client sends (the server
+/// derives the sender itself). Being optional, it is omitted from the outbound JSON when `nil`
+/// (synthesized `encodeIfPresent`), so the server's inbound DTO is unaffected.
 struct MessageEnvelope: Codable, Equatable, Sendable {
     let messageId: String
     let toSub: String
-    let deviceId: String?
+    let toDeviceId: UInt32
+    let fromDeviceId: UInt32
+    let messageType: SignalMessageType
     let ciphertext: String
+    let fromSub: String?
+
+    init(
+        messageId: String,
+        toSub: String,
+        toDeviceId: UInt32,
+        fromDeviceId: UInt32,
+        messageType: SignalMessageType,
+        ciphertext: String,
+        fromSub: String? = nil
+    ) {
+        self.messageId = messageId
+        self.toSub = toSub
+        self.toDeviceId = toDeviceId
+        self.fromDeviceId = fromDeviceId
+        self.messageType = messageType
+        self.ciphertext = ciphertext
+        self.fromSub = fromSub
+    }
 }
 
 extension MessageEnvelope {

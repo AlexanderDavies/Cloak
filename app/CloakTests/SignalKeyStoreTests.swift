@@ -170,6 +170,105 @@ import LibSignalClient
             try rebuilt.identityKeyPair(context: NullContext()).serialize() == identity.serialize())
     }
 
+    // MARK: - SessionStore
+
+    /// Builds a real `SessionRecord` by running Alice through Bob's `PreKeyBundle`.
+    ///
+    /// - Returns: A tuple of the established session and the address (Bob's) it was stored under.
+    private func makeSession() throws -> (SessionRecord, ProtocolAddress) {
+        let bobAddress = try ProtocolAddress(name: "bob", deviceId: 1)
+        let aliceAddress = try ProtocolAddress(name: "alice", deviceId: 1)
+
+        // Bob's long-term identity
+        let bobIdentity = IdentityKeyPair.generate()
+        let bobRegId = UInt32.random(in: 1...0x3FFF)
+
+        // Bob's signed EC prekey
+        let signedECKeyPair = PrivateKey.generate()
+        let ecSig = bobIdentity.privateKey.generateSignature(
+            message: signedECKeyPair.publicKey.serialize())
+        let signedPreKeyRecord = try LibSignalClient.SignedPreKeyRecord(
+            id: 1, timestamp: 1_700_000_000, privateKey: signedECKeyPair, signature: ecSig)
+
+        // Bob's one-time EC prekey
+        let oneTimeKeyPair = PrivateKey.generate()
+        let oneTimePreKeyRecord = try PreKeyRecord(id: 1, privateKey: oneTimeKeyPair)
+
+        // Bob's Kyber prekey (PQXDH mandatory in 0.96.2)
+        let kyberPair = KEMKeyPair.generate()
+        let kyberSig = bobIdentity.privateKey.generateSignature(
+            message: kyberPair.publicKey.serialize())
+        let kyberPreKeyRecord = try KyberPreKeyRecord(
+            id: 1, timestamp: 1_700_000_000, keyPair: kyberPair, signature: kyberSig)
+
+        // Bob's in-memory store (needed so processPreKeyBundle can call back into it)
+        let bobStore = InMemorySignalProtocolStore(identity: bobIdentity, registrationId: bobRegId)
+        try bobStore.storeSignedPreKey(signedPreKeyRecord, id: 1, context: NullContext())
+        try bobStore.storePreKey(oneTimePreKeyRecord, id: 1, context: NullContext())
+        try bobStore.storeKyberPreKey(kyberPreKeyRecord, id: 1, context: NullContext())
+
+        // Assemble Bob's PreKeyBundle
+        let bundle = try PreKeyBundle(
+            registrationId: bobRegId,
+            deviceId: 1,
+            prekeyId: 1,
+            prekey: oneTimeKeyPair.publicKey,
+            signedPrekeyId: 1,
+            signedPrekey: signedECKeyPair.publicKey,
+            signedPrekeySignature: ecSig,
+            identity: bobIdentity.identityKey,
+            kyberPrekeyId: 1,
+            kyberPrekey: kyberPair.publicKey,
+            kyberPrekeySignature: kyberSig)
+
+        // Alice processes the bundle — this writes a SessionRecord into aliceStore
+        let aliceStore = InMemorySignalProtocolStore()
+        try processPreKeyBundle(
+            bundle,
+            for: bobAddress,
+            ourAddress: aliceAddress,
+            sessionStore: aliceStore,
+            identityStore: aliceStore,
+            context: NullContext())
+
+        let session = try #require(try aliceStore.loadSession(for: bobAddress, context: NullContext()))
+        return (session, bobAddress)
+    }
+
+    @Test func storesAndLoadsSession() throws {
+        let store = try freshStore()
+        let (session, address) = try makeSession()
+
+        try store.storeSession(session, for: address, context: NullContext())
+        let loaded = try store.loadSession(for: address, context: NullContext())
+        let result = try #require(loaded)
+        #expect(result.serialize() == session.serialize())
+    }
+
+    @Test func loadSessionForUnknownAddressReturnsNil() throws {
+        let store = try freshStore()
+        let address = try ProtocolAddress(name: "stranger-session", deviceId: 1)
+        #expect(try store.loadSession(for: address, context: NullContext()) == nil)
+    }
+
+    @Test func loadExistingSessionsThrowsWhenAddressMissing() throws {
+        let store = try freshStore()
+        let address = try ProtocolAddress(name: "ghost-session", deviceId: 1)
+        #expect(throws: SignalError.self) {
+            try store.loadExistingSessions(for: [address], context: NullContext())
+        }
+    }
+
+    @Test func loadExistingSessionsReturnsAllWhenPresent() throws {
+        let store = try freshStore()
+        let (session, address) = try makeSession()
+
+        try store.storeSession(session, for: address, context: NullContext())
+        let results = try store.loadExistingSessions(for: [address], context: NullContext())
+        #expect(results.count == 1)
+        #expect(results[0].serialize() == session.serialize())
+    }
+
     // MARK: - DeviceKeyVault round-trip
 
     @Test func vaultPersistedPrivateKeysSurviveAndRehydrate() throws {

@@ -110,6 +110,15 @@ public abstract class IntegrationTestBase {
     // Resource-server issuer: both the typed config (cloak.auth) and Boot's JWT decoder.
     r.add("cloak.auth.issuer-uri", IntegrationTestBase::issuerUri);
     r.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", IntegrationTestBase::issuerUri);
+    // Keycloak Admin API: point the service-account client at the test Keycloak container.
+    r.add(
+        "cloak.keycloak-admin.token-uri",
+        () -> KEYCLOAK.getAuthServerUrl() + "/realms/cloak/protocol/openid-connect/token");
+    r.add(
+        "cloak.keycloak-admin.users-uri",
+        () -> KEYCLOAK.getAuthServerUrl() + "/admin/realms/cloak/users");
+    r.add("cloak.keycloak-admin.client-id", () -> "cloak-server-admin");
+    r.add("cloak.keycloak-admin.client-secret", () -> "cloak-server-admin-dev-secret");
     // Point the OTLP exporters at the LGTM container; push metrics every second so assertions
     // don't wait on the default step.
     r.add("management.otlp.metrics.export.url", () -> LGTM.getOtlpHttpUrl() + "/v1/metrics");

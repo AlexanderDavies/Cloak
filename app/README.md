@@ -25,9 +25,9 @@ open Cloak.xcworkspace     # always open the workspace, never the bare .xcodepro
 > `LIBSIGNAL_FFI_PREBUILD_CHECKSUM` to the SHA-256 from the matching GitHub release asset
 > (`libsignal-client-ios-build-<tag>.tar.gz.sha256`). A mismatch is a hard build error.
 
-## Onboarding flow (Slice 1)
+## Onboarding + messaging flow (Slices 1–2)
 
-After signing in via Keycloak (OIDC-PKCE), the app runs the Slice 1 onboarding flow:
+After signing in via Keycloak (OIDC-PKCE), the app runs the onboarding flow and opens the chat UI:
 
 1. **Login** — a Cloak-branded Keycloak login page (OIDC-PKCE). Self-registration is enabled; new users
    can create an account directly from the login screen.
@@ -35,7 +35,13 @@ After signing in via Keycloak (OIDC-PKCE), the app runs the Slice 1 onboarding f
    (identity key pair, signed prekey, 100 one-time prekeys). The public bundle is published to the server
    via `PUT /v1/keys`. **Private keys never leave the device**; they are stored in the
    SQLCipher-encrypted on-device database (GRDB + SQLCipher, passphrase held in the iOS Keychain).
-3. **Empty conversation list** — the destination screen. Messaging is added in Slice 2.
+3. **Start conversation** — resolve a peer handle (email or username) to a `ResolvedRecipient` via
+   `GET /v1/users/lookup`, then open the chat thread.
+4. **Chat thread** — compose, encrypt, and send messages; receive and decrypt inbound ones.
+   On the first send to a new peer, the app fetches their pre-key bundle (`GET /v1/keys/{sub}`) and
+   runs PQXDH (X3DH + ML-KEM-1024) to establish a session. The first message is a
+   `PreKeySignalMessage`; subsequent messages use the normal Double-Ratchet path. Inbound envelopes are
+   decrypted on receipt. Message history is ephemeral (in-memory) — persistence arrives in Slice 3.
 
 Key generation uses [LibSignalClient](https://github.com/signalapp/libsignal) (CocoaPods, prebuilt FFI
 binary). The on-device database is encrypted via GRDB/SQLCipher; the passphrase is a 32-byte random

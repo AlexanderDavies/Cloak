@@ -1,6 +1,7 @@
 package com.cloak.server.adapter.input.rest.keys;
 
 import com.cloak.server.domain.device.DeviceKeyBundle;
+import com.cloak.server.domain.device.KyberPreKey;
 import com.cloak.server.domain.device.OneTimePreKey;
 import com.cloak.server.domain.device.SignedPreKey;
 import java.util.Base64;
@@ -12,10 +13,17 @@ public record PublishKeyBundleRequest(
     int deviceId,
     String identityKey,
     SignedPreKeyDto signedPreKey,
+    KyberPreKeyDto kyberPreKey,
     List<OneTimePreKeyDto> oneTimePreKeys) {
 
   /** Wire DTO for a signed prekey. */
   public record SignedPreKeyDto(int keyId, String publicKey, String signature) {}
+
+  /**
+   * Wire DTO for the last-resort Kyber (ML-KEM-1024) prekey. {@code publicKey} decodes to 1569
+   * bytes (1568 raw ML-KEM-1024 + 1 libsignal type tag); {@code signature} decodes to 64 bytes.
+   */
+  public record KyberPreKeyDto(int keyId, String publicKey, String signature) {}
 
   /** Wire DTO for a one-time prekey. */
   public record OneTimePreKeyDto(int keyId, String publicKey) {}
@@ -26,7 +34,10 @@ public record PublishKeyBundleRequest(
    * @throws IllegalArgumentException on any structural violation (bad key length, etc.)
    */
   DeviceKeyBundle toDomain() {
-    if (signedPreKey == null || oneTimePreKeys == null || identityKey == null) {
+    if (signedPreKey == null
+        || kyberPreKey == null
+        || oneTimePreKeys == null
+        || identityKey == null) {
       throw new IllegalArgumentException("missing required fields");
     }
     var decoder = Base64.getDecoder();
@@ -35,10 +46,16 @@ public record PublishKeyBundleRequest(
             signedPreKey.keyId(),
             decoder.decode(signedPreKey.publicKey()),
             decoder.decode(signedPreKey.signature()));
+    var kyber =
+        new KyberPreKey(
+            kyberPreKey.keyId(),
+            decoder.decode(kyberPreKey.publicKey()),
+            decoder.decode(kyberPreKey.signature()));
     var otps =
         oneTimePreKeys.stream()
             .map(o -> new OneTimePreKey(o.keyId(), decoder.decode(o.publicKey())))
             .toList();
-    return DeviceKeyBundle.of(registrationId, deviceId, decoder.decode(identityKey), signed, otps);
+    return DeviceKeyBundle.of(
+        registrationId, deviceId, decoder.decode(identityKey), signed, kyber, otps);
   }
 }

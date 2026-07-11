@@ -72,7 +72,8 @@ class TelemetryPrivacyIntegrationTest extends IntegrationTestBase {
 
     String frame =
         "{\"messageId\":\"55555555-5555-5555-5555-555555555555\","
-            + "\"toSub\":\"%s\",\"deviceId\":null,\"ciphertext\":\"%s\"}";
+            + "\"toSub\":\"%s\",\"toDeviceId\":1,\"fromDeviceId\":1,"
+            + "\"messageType\":2,\"ciphertext\":\"%s\"}";
     alice.sendMessage(new TextMessage(frame.formatted(bobSub, SENTINEL)));
     received.get(15, TimeUnit.SECONDS); // full path ran (persist → publish → consume → deliver)
     alice.close();

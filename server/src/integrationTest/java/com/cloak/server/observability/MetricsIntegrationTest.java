@@ -25,7 +25,7 @@ class MetricsIntegrationTest extends IntegrationTestBase {
   void routedCounter_isExportedToPrometheusOverOtlp() {
     routeMessage.route(
         new RouteMessageCommand(
-            UUID.randomUUID().toString(), "alice", "bob", null, new byte[] {1, 2, 3}));
+            UUID.randomUUID().toString(), "alice", "bob", 1, 1, 2, new byte[] {1, 2, 3}));
 
     await()
         .atMost(Duration.ofSeconds(30))
