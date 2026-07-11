@@ -2,6 +2,12 @@ cloak:
   auth:
     issuer-uri: http://localhost:8081/realms/cloak
     audience: cloak-api
+  keycloak-admin:
+    token-uri: http://localhost:8081/realms/cloak/protocol/openid-connect/token
+    users-uri: http://localhost:8081/admin/realms/cloak/users
+    client-id: cloak-server-admin
+    # Dev-only secret — never a real credential. Matches iam/realm/cloak-realm.json.
+    client-secret: cloak-server-admin-dev-secret
 spring:
   application:
     name: server

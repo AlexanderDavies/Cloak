@@ -55,7 +55,9 @@ public class RouteMessageUseCase {
             new MessageId(cmd.messageId()),
             cmd.senderSub(),
             cmd.recipientSub(),
-            cmd.deviceId(),
+            cmd.senderDeviceId(),
+            cmd.recipientDeviceId(),
+            cmd.messageType(),
             new Ciphertext(cmd.ciphertext()));
     tx.executeWithoutResult(s -> repository.save(message)); // persist in transaction
     publisher.publish(message); // publish after commit (§5.2 persist-then-publish)

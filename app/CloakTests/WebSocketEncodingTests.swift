@@ -3,14 +3,20 @@ import Testing
 
 @Suite struct WebSocketEncodingTests {
     @Test func encodesEnvelopeToJSONText() throws {
-        let env = MessageEnvelope(messageId: "m1", toSub: "bob-sub", deviceId: nil, ciphertext: "AQID")
+        let env = MessageEnvelope(
+            messageId: "m1", toSub: "bob-sub",
+            toDeviceId: 1, fromDeviceId: 2,
+            messageType: .normal, ciphertext: "AQID")
         let text = try env.jsonText()
         #expect(text.contains("\"toSub\":\"bob-sub\""))
         #expect(text.contains("\"ciphertext\":\"AQID\""))
     }
 
     @Test func decodeRoundTripsEncodedEnvelope() throws {
-        let env = MessageEnvelope(messageId: "m1", toSub: "bob-sub", deviceId: "d1", ciphertext: "AQID")
+        let env = MessageEnvelope(
+            messageId: "m1", toSub: "bob-sub",
+            toDeviceId: 1, fromDeviceId: 2,
+            messageType: .preKey, ciphertext: "AQID")
         #expect(MessageEnvelope.decode(text: try env.jsonText()) == env)
     }
 

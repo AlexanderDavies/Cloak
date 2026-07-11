@@ -54,4 +54,39 @@ import Foundation
         let json = try bundle.jsonObject()
         #expect(json["deviceId"] as? Int == 7)
     }
+
+    // MARK: - PQXDH kyberPreKey field
+
+    @Test func kyberPreKey_fieldPresentInBundle() throws {
+        let keys = try SignalKeyGenerator.generate(oneTimeCount: 1)
+        let bundle = try PublicKeyBundle(from: keys, deviceId: 1)
+        let json = try bundle.jsonObject()
+        let kyber = json["kyberPreKey"] as? [String: Any]
+        #expect(kyber != nil, "kyberPreKey must be present in the bundle")
+        #expect(kyber?["keyId"] != nil)
+        #expect(kyber?["publicKey"] != nil)
+        #expect(kyber?["signature"] != nil)
+    }
+
+    @Test func kyberPreKey_publicKeyIsValidBase64() throws {
+        let keys = try SignalKeyGenerator.generate(oneTimeCount: 1)
+        let bundle = try PublicKeyBundle(from: keys, deviceId: 1)
+        let json = try bundle.jsonObject()
+        guard let kyber = json["kyberPreKey"] as? [String: Any],
+              let b64 = kyber["publicKey"] as? String,
+              let decoded = Data(base64Encoded: b64) else {
+            Issue.record("kyberPreKey.publicKey is not valid base64")
+            return
+        }
+        // libsignal prepends a 1-byte type tag → ML-KEM-1024 (1568) + tag (1) = 1569 bytes.
+        #expect(decoded.count == 1569, "Unexpected kyber public key length: \(decoded.count)")
+    }
+
+    @Test func kyberPreKey_keyIdMatchesGeneratedId() throws {
+        let keys = try SignalKeyGenerator.generate(oneTimeCount: 1)
+        let bundle = try PublicKeyBundle(from: keys, deviceId: 1)
+        let json = try bundle.jsonObject()
+        let kyber = json["kyberPreKey"] as? [String: Any]
+        #expect(kyber?["keyId"] as? Int == Int(keys.kyberPreKeyId))
+    }
 }

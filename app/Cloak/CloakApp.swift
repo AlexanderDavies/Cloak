@@ -1,3 +1,4 @@
+import GRDB
 import SwiftUI
 
 @main
@@ -14,8 +15,12 @@ struct CloakApp: App {
 
     @ViewBuilder
     private var rootView: some View {
-        if let issuer, let baseURL, let registration = Self.makeRegistration(baseURL: baseURL) {
-            RootView(auth: KeycloakAuthService(issuer: issuer), registration: registration)
+        if let issuer, let baseURL, let (registration, database) = Self.makeGraph(baseURL: baseURL) {
+            RootView(
+                auth: KeycloakAuthService(issuer: issuer),
+                registration: registration,
+                database: database,
+                baseURL: baseURL)
         } else {
             // `EncryptedDatabase.openDefault()` can throw (Keychain/SQLCipher) and the URLs can fail
             // to parse; either way surface a static error rather than crashing the app at launch.
@@ -23,16 +28,18 @@ struct CloakApp: App {
         }
     }
 
-    /// Builds the real device-registration service graph, returning `nil` if the encrypted store
-    /// can't be opened so the caller can fall back to the error state.
-    private static func makeRegistration(baseURL: URL) -> DeviceRegistrationService? {
+    /// Opens the encrypted store, builds the device-registration service, and returns both so the
+    /// composition root can rebuild `SignalKeyStore` from the persisted identity after registration.
+    /// Returns `nil` if the store cannot be opened so the caller can fall back to the error state.
+    private static func makeGraph(baseURL: URL) -> (DeviceRegistrationService, DatabaseQueue)? {
         do {
             let database = try EncryptedDatabase.openDefault()
-            return DeviceRegistrationService(
+            let registration = DeviceRegistrationService(
                 publisher: HTTPDeviceKeyPublisher(baseURL: baseURL, runner: URLSessionHTTPRunner()),
                 vault: GRDBDeviceKeyVault(database: database),
                 state: try GRDBRegistrationState(database: database),
                 oneTimeCount: 100)
+            return (registration, database)
         } catch {
             return nil
         }

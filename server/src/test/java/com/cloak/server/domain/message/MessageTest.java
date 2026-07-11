@@ -18,9 +18,14 @@ class MessageTest {
             new MessageId("11111111-1111-1111-1111-111111111111"),
             "alice-sub",
             "bob-sub",
-            "device-1",
+            1,
+            1,
+            3,
             new Ciphertext(new byte[] {9, 9}));
     assertThat(msg.recipientSub()).isEqualTo("bob-sub");
+    assertThat(msg.senderDeviceId()).isEqualTo(1);
+    assertThat(msg.recipientDeviceId()).isEqualTo(1);
+    assertThat(msg.messageType()).isEqualTo(3);
     assertThat(msg.ciphertext().value()).containsExactly(9, 9);
   }
 }

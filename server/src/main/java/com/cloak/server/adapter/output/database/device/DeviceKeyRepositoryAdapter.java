@@ -14,14 +14,17 @@ import org.springframework.transaction.annotation.Transactional;
 class DeviceKeyRepositoryAdapter implements DeviceKeyRepositoryPort {
   private final SpringDataDeviceRepository devices;
   private final SpringDataSignedPreKeyRepository signed;
+  private final SpringDataKyberPreKeyRepository kyber;
   private final SpringDataOneTimePreKeyRepository oneTime;
 
   DeviceKeyRepositoryAdapter(
       SpringDataDeviceRepository devices,
       SpringDataSignedPreKeyRepository signed,
+      SpringDataKyberPreKeyRepository kyber,
       SpringDataOneTimePreKeyRepository oneTime) {
     this.devices = devices;
     this.signed = signed;
+    this.kyber = kyber;
     this.oneTime = oneTime;
   }
 
@@ -37,10 +40,12 @@ class DeviceKeyRepositoryAdapter implements DeviceKeyRepositoryPort {
     devices.save(device);
 
     signed.deleteByDeviceId(device.getId());
+    kyber.deleteByDeviceId(device.getId());
     oneTime.deleteByDeviceId(device.getId());
     // Flush deletes to the DB before inserting new rows so the PK constraint cannot fire
     // on the composite (device_id, key_id) if we are re-registering the same key ids.
     signed.flush();
+    kyber.flush();
     oneTime.flush();
     signed.save(
         new SignedPreKeyEntity(
@@ -48,6 +53,12 @@ class DeviceKeyRepositoryAdapter implements DeviceKeyRepositoryPort {
             bundle.signedPreKey().keyId(),
             bundle.signedPreKey().publicKey(),
             bundle.signedPreKey().signature()));
+    kyber.save(
+        new KyberPreKeyEntity(
+            device.getId(),
+            bundle.kyberPreKey().keyId(),
+            bundle.kyberPreKey().publicKey(),
+            bundle.kyberPreKey().signature()));
     bundle
         .oneTimePreKeys()
         .forEach(

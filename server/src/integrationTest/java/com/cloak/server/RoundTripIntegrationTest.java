@@ -19,15 +19,16 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 /**
  * The walking skeleton's keystone: an authenticated alice→bob round trip. Alice's opaque ciphertext
  * envelope is persisted, published to Kafka keyed by bob's {@code sub}, consumed, and delivered
- * unchanged to bob's live WebSocket session. Asserts the ciphertext is forwarded byte-for-byte
- * (same base64) and that no plaintext leaks into the delivered frame.
+ * unchanged to bob's live WebSocket session. Asserts the delivery frame carries the correct integer
+ * device numbers, message type, sender identity, and byte-identical ciphertext — and that no
+ * plaintext leaks into the delivered frame.
  */
 class RoundTripIntegrationTest extends IntegrationTestBase {
 
   @LocalServerPort int port;
 
   @Test
-  void aliceToBob_deliveredOverWebSocket_ciphertextUnchanged() throws Exception {
+  void aliceToBob_deliveredOverWebSocket_envelopeFieldsCorrect() throws Exception {
     // Bob connects and completes the future when a frame arrives.
     CompletableFuture<String> received = new CompletableFuture<>();
     String bobToken = Tokens.accessToken(issuerUri(), "bob");
@@ -50,8 +51,9 @@ class RoundTripIntegrationTest extends IntegrationTestBase {
     String bobSub = Tokens.subject(bobToken);
 
     // Alice connects and sends to bob.
+    String aliceToken = Tokens.accessToken(issuerUri(), "alice");
     WebSocketHttpHeaders aliceHeaders = new WebSocketHttpHeaders();
-    aliceHeaders.setBearerAuth(Tokens.accessToken(issuerUri(), "alice"));
+    aliceHeaders.setBearerAuth(aliceToken);
     WebSocketSession alice =
         new StandardWebSocketClient()
             .execute(
@@ -62,13 +64,26 @@ class RoundTripIntegrationTest extends IntegrationTestBase {
 
     byte[] cipher = {9, 0, 2, 1, 0};
     String b64 = Base64.getEncoder().encodeToString(cipher);
+    // Inbound frame: integer device numbers + messageType (3 = PreKeySignalMessage).
+    // No fromSub — sender is the authenticated principal, never a client-supplied field.
     String frame =
         "{\"messageId\":\"77777777-7777-7777-7777-777777777777\","
-            + "\"toSub\":\"%s\",\"deviceId\":null,\"ciphertext\":\"%s\"}";
+            + "\"toSub\":\"%s\",\"toDeviceId\":1,\"fromDeviceId\":1,"
+            + "\"messageType\":3,\"ciphertext\":\"%s\"}";
     alice.sendMessage(new TextMessage(frame.formatted(bobSub, b64)));
 
     String delivered = received.get(15, TimeUnit.SECONDS);
-    assertThat(delivered).contains(b64); // ciphertext forwarded unchanged
+    // Extract alice's sub just before asserting it is present — keeps distance ≤ 3 (Checkstyle).
+    String aliceSub = Tokens.subject(aliceToken);
+    // Ciphertext forwarded byte-for-byte (same base64).
+    assertThat(delivered).contains(b64);
+    // Sender identity set from JWT principal, not client frame.
+    assertThat(delivered).contains(aliceSub);
+    // Integer device numbers and message type preserved end-to-end.
+    assertThat(delivered).contains("\"toDeviceId\":1");
+    assertThat(delivered).contains("\"fromDeviceId\":1");
+    assertThat(delivered).contains("\"messageType\":3");
+    // Privacy: no plaintext in the delivery frame.
     assertThat(delivered).doesNotContain("plaintext");
 
     alice.close();

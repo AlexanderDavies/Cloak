@@ -1,19 +1,20 @@
 import Testing
 import Foundation
+import GRDB
+import LibSignalClient
 @testable import Cloak
 
-/// Privacy gate: proves that the JSON uploaded to the server contains only public key material.
+/// Privacy gate: proves that data sent to the server contains only public key material (Slice 1)
+/// and that encrypted message envelopes carry opaque ciphertext — never plaintext (Slice 2).
 ///
-/// This is a guard test — `PublicKeyBundle` is `Codable` and only declares public fields, so it
-/// should always pass. Its value is as a regression barrier: if a private field is ever accidentally
-/// added to `PublicKeyBundle` (or `GeneratedDeviceKeys` is incorrectly serialised directly), this
-/// test catches it before anything reaches the wire.
+/// These are guard tests — they should always pass given correct implementation. Their value is as
+/// regression barriers: if a private field is accidentally added, or if the encryption path becomes
+/// a no-op, these tests catch it before anything reaches the wire.
 ///
-/// Root CLAUDE.md principle 6 + docs/contracts/slice1-device-key-bundle.md: "The bundle is public
-/// key material only — private keys never leave the device."
+/// Root CLAUDE.md principles 2 + 6: "E2EE is the client's job" and "minimal cleartext metadata."
 @Suite struct PrivacyGateTests {
 
-    // MARK: - Field-name assertions
+    // MARK: - Field-name assertions (Slice 1)
 
     @Test func uploadedBundleContainsOnlyPublicFields() throws {
         let keys = try SignalKeyGenerator.generate(oneTimeCount: 2)
@@ -28,7 +29,7 @@ import Foundation
         #expect(!json.lowercased().contains("secret"))
     }
 
-    // MARK: - Strengthened assertion: private key bytes are absent from the wire payload
+    // MARK: - Strengthened assertion: private key bytes are absent from the wire payload (Slice 1)
 
     /// Encodes the private key for each key type as base64 and verifies none of those byte
     /// sequences appear in the serialised bundle. This catches the case where a private key's
@@ -60,5 +61,121 @@ import Foundation
                 "Private key bytes (\(b64.prefix(12))…) found in upload JSON"
             )
         }
+    }
+
+    // MARK: - Slice 2: encrypted envelope privacy
+
+    // MARK: Helpers
+
+    /// Snapshot of one participant's key store + protocol address + long-term identity.
+    private struct ParticipantSetup {
+        let store: SignalKeyStore
+        let address: ProtocolAddress
+        let identity: IdentityKeyPair
+    }
+
+    /// Opens a fresh encrypted store for `sub` and returns its key material.
+    private func makeParticipant(sub: String) throws -> ParticipantSetup {
+        let path = NSTemporaryDirectory() + "pg2-\(sub)-\(UUID().uuidString).sqlite"
+        let queue = try EncryptedDatabase.open(path: path, passphrase: "k")
+        let identity = IdentityKeyPair.generate()
+        let regId = UInt32.random(in: 1...0x3FFF)
+        let store = try SignalKeyStore(database: queue, identity: identity, registrationId: regId)
+        let address = try ProtocolAddress(name: sub, deviceId: 1)
+        return ParticipantSetup(store: store, address: address, identity: identity)
+    }
+
+    /// Generates a full set of prekeys for `participant`, stores the private halves in its store,
+    /// and returns the matching public `RemotePreKeyBundle` for an initiator to consume.
+    private func makeBundle(for participant: ParticipantSetup) throws -> RemotePreKeyBundle {
+        let store = participant.store
+        let identity = participant.identity
+        let timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+        let regId = UInt32.random(in: 1...0x3FFF)
+
+        // Signed EC prekey.
+        let ecPriv = PrivateKey.generate()
+        let ecSig = identity.privateKey.generateSignature(message: ecPriv.publicKey.serialize())
+        try store.storeSignedPreKey(
+            try LibSignalClient.SignedPreKeyRecord(
+                id: 1, timestamp: timestamp, privateKey: ecPriv, signature: ecSig),
+            id: 1, context: NullContext())
+
+        // One-time EC prekey.
+        let otPriv = PrivateKey.generate()
+        try store.storePreKey(
+            try LibSignalClient.PreKeyRecord(id: 1, privateKey: otPriv),
+            id: 1, context: NullContext())
+
+        // Kyber (ML-KEM-1024) prekey for PQXDH.
+        let kyberPair = KEMKeyPair.generate()
+        let kyberSig = identity.privateKey.generateSignature(
+            message: kyberPair.publicKey.serialize())
+        try store.storeKyberPreKey(
+            try KyberPreKeyRecord(
+                id: 1, timestamp: timestamp, keyPair: kyberPair, signature: kyberSig),
+            id: 1, context: NullContext())
+
+        return RemotePreKeyBundle(
+            registrationId: regId,
+            deviceId: 1,
+            identityKey: identity.identityKey.serialize().base64EncodedString(),
+            signedPreKey: RemotePreKeyBundle.SignedPreKey(
+                keyId: 1,
+                publicKey: ecPriv.publicKey.serialize().base64EncodedString(),
+                signature: ecSig.base64EncodedString()),
+            oneTimePreKey: RemotePreKeyBundle.OneTimePreKey(
+                keyId: 1,
+                publicKey: otPriv.publicKey.serialize().base64EncodedString()),
+            kyberPreKey: RemotePreKeyBundle.KyberPreKey(
+                keyId: 1,
+                publicKey: kyberPair.publicKey.serialize().base64EncodedString(),
+                signature: kyberSig.base64EncodedString()))
+    }
+
+    /// Asserts that a `MessageEnvelope` produced by a real `MessageCrypto.encrypt(...)` over a
+    /// real PQXDH session carries opaque ciphertext — the serialised JSON must not contain the
+    /// plaintext string, and base64-decoding the `ciphertext` field must yield bytes distinct from
+    /// the raw plaintext bytes.
+    ///
+    /// Mirrors the Slice 1 upload-body assertions above. Establishes a real PQXDH session
+    /// (Alice → Bob) using temp `SignalKeyStore`s, as the C6/C8 tests do.
+    @Test func encryptedEnvelope_ciphertextNotPlaintext() throws {
+        let alice = try makeParticipant(sub: "alice")
+        let bob = try makeParticipant(sub: "bob")
+        let bobBundle = try makeBundle(for: bob)
+
+        // Alice runs PQXDH against Bob's bundle to establish an outbound session.
+        let establisher = SessionEstablisher(store: alice.store, localAddress: alice.address)
+        try establisher.establishOutbound(with: bobBundle, recipientSub: "bob")
+
+        // Encrypt a known plaintext.
+        let plaintext = "secret-plaintext-123"
+        let plaintextData = Data(plaintext.utf8)
+        let crypto = MessageCrypto(store: alice.store, localAddress: alice.address)
+        let payload = try crypto.encrypt(plaintextData, to: "bob", deviceId: 1)
+
+        // Build the wire envelope (exactly as ChatThreadViewModel does on send).
+        let envelope = MessageEnvelope(
+            messageId: UUID().uuidString,
+            toSub: "bob",
+            toDeviceId: 1,
+            fromDeviceId: 1,
+            messageType: payload.type,
+            ciphertext: payload.ciphertext.base64EncodedString())
+
+        // Serialize to JSON — this is what goes to the server.
+        let json = try envelope.jsonText()
+
+        // 1. The plaintext must not appear anywhere in the wire JSON.
+        #expect(
+            !json.contains(plaintext),
+            "Plaintext appears verbatim in the wire envelope JSON")
+
+        // 2. The raw ciphertext bytes differ from the plaintext bytes (encryption is not a no-op).
+        let ciphertextBytes = try #require(Data(base64Encoded: envelope.ciphertext))
+        #expect(
+            ciphertextBytes != plaintextData,
+            "Ciphertext bytes are identical to plaintext bytes — encryption is a no-op")
     }
 }

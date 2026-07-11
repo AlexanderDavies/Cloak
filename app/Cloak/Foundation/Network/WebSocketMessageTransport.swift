@@ -1,8 +1,17 @@
 import Foundation
+import os
+
+/// Errors surfaced by ``WebSocketMessageTransport``.
+enum WebSocketTransportError: Error {
+    /// `send` was called before `connect` established the socket.
+    case notConnected
+}
 
 /// Real `MessageTransport` over `URLSessionWebSocketTask`, isolated as an actor (guide §4.2 / §8.2).
 /// Reconnection, backoff, and the persisted offline outbox (guide §8.3 / §8.5) are later slices.
 actor WebSocketMessageTransport: MessageTransport {
+    private static let log = Logger(subsystem: "com.cloak", category: "transport")
+
     private let url: URL
     private var task: URLSessionWebSocketTask?
     private var continuation: AsyncThrowingStream<MessageEnvelope, Error>.Continuation?
@@ -19,7 +28,10 @@ actor WebSocketMessageTransport: MessageTransport {
     }
 
     func send(_ envelope: MessageEnvelope) async throws {
-        try await task?.send(.string(envelope.jsonText()))
+        // Throw rather than silently no-op if the socket isn't up yet — otherwise the caller would
+        // report a message as "sent" that never left the device (false success / silent data loss).
+        guard let task else { throw WebSocketTransportError.notConnected }
+        try await task.send(.string(envelope.jsonText()))
     }
 
     func inbound() async -> AsyncThrowingStream<MessageEnvelope, Error> {
@@ -41,8 +53,14 @@ actor WebSocketMessageTransport: MessageTransport {
     private func handle(_ result: Result<URLSessionWebSocketTask.Message, Error>) {
         switch result {
         case let .success(message):
-            if case let .string(text) = message, let env = MessageEnvelope.decode(text: text) {
-                continuation?.yield(env)
+            if case let .string(text) = message {
+                if let env = MessageEnvelope.decode(text: text) {
+                    continuation?.yield(env)
+                } else {
+                    // Don't silently swallow a frame we can't decode: record it (no content logged —
+                    // never log ciphertext/routing) so the drop is observable rather than invisible.
+                    Self.log.error("Dropped an undecodable inbound WebSocket frame")
+                }
             }
             receiveLoop()                                 // keep listening for the next frame
         case let .failure(error):

@@ -2,6 +2,8 @@ package com.cloak.server.common.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.cloak.server.usecase.DeviceNotFoundException;
+import com.cloak.server.usecase.UserNotFoundException;
 import java.lang.reflect.Method;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -186,6 +188,35 @@ class GlobalExceptionHandlerTest {
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     assertThat(response.getBody().errors().get(0).code()).isEqualTo("INVALID_REQUEST");
     assertThat(response.getBody().errors().get(0).message()).isEqualTo("Invalid request.");
+  }
+
+  @Test
+  void deviceNotFound_returns404_notFoundCode_noSubInBody() {
+    DeviceNotFoundException ex = new DeviceNotFoundException();
+
+    ResponseEntity<WrappedResponse<Void>> response = handler.onDeviceNotFound(ex, request);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    ApiError error = response.getBody().errors().get(0);
+    assertThat(error.code()).isEqualTo("NOT_FOUND");
+    assertThat(error.message()).isEqualTo("Device not found.");
+    // Sub must never appear in the wire response (privacy: root CLAUDE.md §0.6).
+    assertThat(error.message()).doesNotContain("sub");
+  }
+
+  @Test
+  void userNotFound_returns404_notFoundCode_noHandleInBody() {
+    UserNotFoundException ex = new UserNotFoundException();
+
+    ResponseEntity<WrappedResponse<Void>> response = handler.onUserNotFound(ex, request);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    ApiError error = response.getBody().errors().get(0);
+    assertThat(error.code()).isEqualTo("NOT_FOUND");
+    assertThat(error.message()).isEqualTo("User not found.");
+    // Handle must never appear in the wire response (privacy: root CLAUDE.md §0.6).
+    assertThat(error.message()).doesNotContain("@");
+    assertThat(error.message()).doesNotContain("bob");
   }
 
   @Test

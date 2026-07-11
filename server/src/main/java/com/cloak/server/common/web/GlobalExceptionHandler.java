@@ -1,5 +1,7 @@
 package com.cloak.server.common.web;
 
+import com.cloak.server.usecase.DeviceNotFoundException;
+import com.cloak.server.usecase.UserNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.List;
@@ -120,6 +122,30 @@ public class GlobalExceptionHandler {
         .body(
             WrappedResponse.error(
                 ApiError.of("UNSUPPORTED_MEDIA_TYPE", "The request media type is not supported.")));
+  }
+
+  /**
+   * No device is registered for the requested owner sub — map to 404. The safe static message never
+   * includes the sub (privacy: no PII on the wire, root CLAUDE.md §0.6).
+   */
+  @ExceptionHandler(DeviceNotFoundException.class)
+  public ResponseEntity<WrappedResponse<Void>> onDeviceNotFound(
+      DeviceNotFoundException ex, HttpServletRequest request) {
+    log.warn("Device not found for {}", request.getRequestURI());
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(WrappedResponse.error(ApiError.of("NOT_FOUND", "Device not found.")));
+  }
+
+  /**
+   * No user matches the exact handle — map to 404. The safe static message never includes the
+   * handle (privacy: no PII on the wire, root CLAUDE.md §0.6).
+   */
+  @ExceptionHandler(UserNotFoundException.class)
+  public ResponseEntity<WrappedResponse<Void>> onUserNotFound(
+      UserNotFoundException ex, HttpServletRequest request) {
+    log.warn("User not found for {}", request.getRequestURI());
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(WrappedResponse.error(ApiError.of("NOT_FOUND", "User not found.")));
   }
 
   /** Domain structural validation failure — e.g. bad key length, duplicate prekey ids. */

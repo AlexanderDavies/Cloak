@@ -2,15 +2,19 @@ import Foundation
 import GRDB
 import LibSignalClient
 
-/// GRDB-backed libsignal stores for identity + prekeys (architecture guide §7).
+/// GRDB-backed libsignal stores for identity, prekeys, and sessions (architecture guide §7).
 ///
 /// Persists key material into the SQLCipher-encrypted database opened by ``EncryptedDatabase``.
-/// `SessionStore`/`SenderKeyStore` are deferred to Slice 2. All record blobs are stored via
-/// `record.serialize()` and rehydrated with the matching `init(bytes:)` deserializer.
+/// `SenderKeyStore` is deferred. All record blobs are stored via `record.serialize()` and
+/// rehydrated with the matching `init(bytes:)` deserializer.
 ///
 /// The libsignal store protocols are synchronous (`throws`) and take a `StoreContext`; this type
 /// conforms to the exact installed signatures, including `saveIdentity` returning `IdentityChange`.
-final class SignalKeyStore: IdentityKeyStore, PreKeyStore, SignedPreKeyStore {
+///
+/// `@unchecked Sendable`: `DatabaseQueue` owns its own serial queue; `IdentityKeyPair`/`UInt32` are
+/// value types. Swift cannot verify this automatically because the class is not an `actor`.
+final class SignalKeyStore: IdentityKeyStore, PreKeyStore, SignedPreKeyStore, SessionStore,
+    KyberPreKeyStore, @unchecked Sendable {
     private let database: DatabaseQueue
     private let identity: IdentityKeyPair
     private let registrationId: UInt32
@@ -39,6 +43,20 @@ final class SignalKeyStore: IdentityKeyStore, PreKeyStore, SignedPreKeyStore {
                         id INTEGER PRIMARY KEY CHECK (id = 0),
                         keypair BLOB NOT NULL,
                         registration_id INTEGER NOT NULL)
+                    """)
+            // Double-Ratchet session state keyed by "<name>.<deviceId>".
+            try connection.execute(
+                sql: """
+                    CREATE TABLE IF NOT EXISTS session(
+                        address TEXT PRIMARY KEY,
+                        record BLOB NOT NULL)
+                    """)
+            // Last-resort ML-KEM-1024 (Kyber) prekey for PQXDH.
+            try connection.execute(
+                sql: """
+                    CREATE TABLE IF NOT EXISTS kyber_prekey(
+                        id INTEGER PRIMARY KEY,
+                        record BLOB NOT NULL)
                     """)
         }
     }
@@ -162,5 +180,67 @@ final class SignalKeyStore: IdentityKeyStore, PreKeyStore, SignedPreKeyStore {
             })
         else { throw SignalError.invalidKeyIdentifier("no signed prekey \(id)") }
         return try LibSignalClient.SignedPreKeyRecord(bytes: data)
+    }
+
+    // MARK: - SessionStore
+
+    /// Composite key for a `ProtocolAddress`: `"<name>.<deviceId>"`.
+    private func sessionKey(_ address: ProtocolAddress) -> String {
+        "\(address.name).\(address.deviceId)"
+    }
+
+    func storeSession(
+        _ record: SessionRecord, for address: ProtocolAddress, context: StoreContext
+    ) throws {
+        try database.write {
+            try $0.execute(
+                sql: "INSERT OR REPLACE INTO session(address, record) VALUES (?, ?)",
+                arguments: [sessionKey(address), record.serialize()])
+        }
+    }
+
+    func loadSession(for address: ProtocolAddress, context: StoreContext) throws -> SessionRecord? {
+        let data = try database.read {
+            try Data.fetchOne(
+                $0, sql: "SELECT record FROM session WHERE address = ?",
+                arguments: [sessionKey(address)])
+        }
+        return try data.map { try SessionRecord(bytes: $0) }
+    }
+
+    func loadExistingSessions(
+        for addresses: [ProtocolAddress], context: StoreContext
+    ) throws -> [SessionRecord] {
+        try addresses.map { address in
+            guard let session = try loadSession(for: address, context: context) else {
+                throw SignalError.sessionNotFound(sessionKey(address))
+            }
+            return session
+        }
+    }
+
+    // MARK: - KyberPreKeyStore (PQXDH last-resort key)
+
+    func storeKyberPreKey(_ record: KyberPreKeyRecord, id: UInt32, context: StoreContext) throws {
+        try database.write {
+            try $0.execute(
+                sql: "INSERT OR REPLACE INTO kyber_prekey(id, record) VALUES (?, ?)",
+                arguments: [Int(id), record.serialize()])
+        }
+    }
+
+    func loadKyberPreKey(id: UInt32, context: StoreContext) throws -> KyberPreKeyRecord {
+        guard let data = try database.read({
+            try Data.fetchOne(
+                $0, sql: "SELECT record FROM kyber_prekey WHERE id = ?", arguments: [Int(id)])
+        }) else { throw SignalError.invalidKeyIdentifier("no kyber prekey \(id)") }
+        return try KyberPreKeyRecord(bytes: data)
+    }
+
+    /// Last-resort Kyber prekeys are reusable — this is intentionally a no-op.
+    func markKyberPreKeyUsed(
+        id: UInt32, signedPreKeyId: UInt32, baseKey: PublicKey, context: StoreContext
+    ) throws {
+        // No-op: the last-resort key is never consumed; it stays in the store indefinitely.
     }
 }

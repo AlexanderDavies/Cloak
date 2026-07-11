@@ -20,6 +20,13 @@ struct PublicKeyBundle: Codable, Equatable {
         let publicKey: String      // base64-encoded 33-byte Curve25519 public key
     }
 
+    /// Wire shape for the last-resort Kyber (ML-KEM-1024) prekey sub-object.
+    struct KyberPreKey: Codable, Equatable {
+        let keyId: UInt32
+        let publicKey: String      // base64-encoded ML-KEM-1024 encapsulation public key
+        let signature: String      // base64-encoded 64-byte XEdDSA identity-key signature
+    }
+
     // MARK: - Top-level contract fields (names match the JSON contract exactly)
 
     let registrationId: UInt32
@@ -27,6 +34,7 @@ struct PublicKeyBundle: Codable, Equatable {
     let identityKey: String        // base64-encoded 33-byte Curve25519 identity public key
     let signedPreKey: SignedPreKey
     let oneTimePreKeys: [OneTimePreKey]
+    let kyberPreKey: KyberPreKey
 
     // MARK: - Init from generated keys
 
@@ -54,6 +62,11 @@ struct PublicKeyBundle: Codable, Equatable {
                 publicKey: b64(record.keyPair.publicKey.serialize())
             )
         }
+        self.kyberPreKey = KyberPreKey(
+            keyId: keys.kyberPreKeyId,
+            publicKey: b64(keys.kyberPreKey.publicKey.serialize()),
+            signature: b64(keys.kyberPreKeySignature)
+        )
     }
 
     // MARK: - Helpers

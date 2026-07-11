@@ -7,6 +7,7 @@ Spring Boot 4 backend. Authenticates requests by validating Keycloak-issued OIDC
 - Java 25+
 - PostgreSQL on `localhost:5432`, Kafka on `localhost:9092`, Schema Registry on `localhost:8085`, and Keycloak on `localhost:8081` — start them all (and create the Kafka topics) with `./dev.sh up` from the repo root
 - Keycloak supplies the OIDC issuer the server validates tokens against
+- **Slice 2 — user lookup:** a `cloak-server-admin` confidential service-account client in Keycloak with the `view-users` role is required for `GET /v1/users/lookup`. See `../iam/README.md` for setup and `application.yml` for the `cloak.keycloak-admin.*` bindings.
 
 ## Run locally
 
@@ -99,6 +100,38 @@ Content-Type: application/json
 ```
 
 The owner `sub` is taken from the validated JWT — the body never carries the caller's identity.
+
+### `GET /v1/keys/{sub}`
+
+Fetches a recipient's public prekey bundle for X3DH key agreement (Slice 2). Atomically
+consumes exactly one one-time prekey from the recipient's pool (sets `consumed_at`; if no
+OTP is available the bundle is returned without one). Flyway **V3** adds the `kyber_prekey`
+table for ML-KEM-1024 (PQXDH) material; `PUT /v1/keys` stores a last-resort Kyber key
+alongside the EC keys.
+
+```
+Authorization: Bearer <Keycloak access token>
+→ 200 { "data": { "registrationId": …, "deviceId": 1, "identityKey": "<b64>",
+                  "signedPreKey": { "keyId": …, "publicKey": "<b64>", "signature": "<b64>" },
+                  "oneTimePreKey": { "keyId": …, "publicKey": "<b64>" } | null,
+                  "kyberPreKey": { "keyId": …, "publicKey": "<b64>", "signature": "<b64>" } },
+        "errors": null, "traceId": "<id>" }
+→ 404 Not Found    when no device is registered for {sub}
+→ 401 Unauthorized when the token is missing, expired, or fails audience validation
+```
+
+### `GET /v1/users/lookup?handle=`
+
+Resolves an exact email address or username to the recipient's Keycloak `sub` and device
+number. Exact-match only — no prefix search, no listing (privacy: root CLAUDE.md §0.6).
+Uses the `cloak-server-admin` service account to call the Keycloak Admin REST API.
+
+```
+Authorization: Bearer <Keycloak access token>
+→ 200 { "data": { "sub": "<uuid>", "deviceId": 1 }, "errors": null, "traceId": "<id>" }
+→ 404 Not Found    when no exact match exists
+→ 401 Unauthorized when the token is missing, expired, or fails audience validation
+```
 
 ### `/ws` — WebSocket
 

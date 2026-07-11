@@ -11,6 +11,7 @@ public record DeviceKeyBundle(
     int deviceNumber,
     byte[] identityKey,
     SignedPreKey signedPreKey,
+    KyberPreKey kyberPreKey,
     List<OneTimePreKey> oneTimePreKeys) {
 
   private static final int MAX_ONE_TIME_PREKEYS = 100;
@@ -30,6 +31,9 @@ public record DeviceKeyBundle(
     }
     if (signedPreKey == null) {
       throw new IllegalArgumentException("signedPreKey required");
+    }
+    if (kyberPreKey == null) {
+      throw new IllegalArgumentException("kyberPreKey required");
     }
     if (oneTimePreKeys == null
         || oneTimePreKeys.isEmpty()
@@ -58,6 +62,7 @@ public record DeviceKeyBundle(
    * @param deviceNumber libsignal device number (&gt;= 1)
    * @param identityKey 33-byte identity public key
    * @param signedPreKey the signed prekey
+   * @param kyberPreKey the last-resort ML-KEM-1024 Kyber prekey
    * @param oneTimePreKeys 1..100 one-time prekeys with unique ids
    * @return the validated bundle
    * @throws IllegalArgumentException on any structural violation
@@ -67,9 +72,10 @@ public record DeviceKeyBundle(
       int deviceNumber,
       byte[] identityKey,
       SignedPreKey signedPreKey,
+      KyberPreKey kyberPreKey,
       List<OneTimePreKey> oneTimePreKeys) {
     return new DeviceKeyBundle(
-        registrationId, deviceNumber, identityKey, signedPreKey, oneTimePreKeys);
+        registrationId, deviceNumber, identityKey, signedPreKey, kyberPreKey, oneTimePreKeys);
   }
 
   @Override

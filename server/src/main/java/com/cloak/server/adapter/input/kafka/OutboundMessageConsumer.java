@@ -18,7 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Outbound delivery adapter. Consumes the Avro {@link OutboundEnvelope} off {@code
  * cloak.messages.outbound} (keyed by recipient {@code sub}), rebuilds the cleartext delivery
- * envelope JSON of {@code docs/contracts/phase0-message-envelope.md}, and fans it out — unchanged —
+ * envelope JSON of {@code docs/contracts/slice2-message-envelope.md}, and fans it out — unchanged —
  * to every open WebSocket session the recipient currently holds.
  *
  * <p>The {@code ciphertext} is opaque: it is only re-encoded as base64 and forwarded. It is never
@@ -63,7 +63,9 @@ public class OutboundMessageConsumer {
     payload.put("messageId", env.getMessageId().toString());
     payload.put("toSub", toSub);
     payload.put("fromSub", env.getFromSub().toString());
-    payload.put("deviceId", env.getDeviceId() == null ? null : env.getDeviceId().toString());
+    payload.put("toDeviceId", env.getToDeviceId());
+    payload.put("fromDeviceId", env.getFromDeviceId());
+    payload.put("messageType", env.getMessageType());
     // Opaque ciphertext re-encoded as base64 and forwarded unchanged — never decrypted/inspected.
     payload.put("ciphertext", Base64.getEncoder().encodeToString(ciphertext));
     TextMessage frame = new TextMessage(jsonMapper.writeValueAsString(payload));

@@ -62,7 +62,8 @@ class TracingIntegrationTest extends IntegrationTestBase {
     String b64 = Base64.getEncoder().encodeToString(new byte[] {4, 2, 4, 2});
     String frame =
         "{\"messageId\":\"33333333-3333-3333-3333-333333333333\","
-            + "\"toSub\":\"%s\",\"deviceId\":null,\"ciphertext\":\"%s\"}";
+            + "\"toSub\":\"%s\",\"toDeviceId\":1,\"fromDeviceId\":1,"
+            + "\"messageType\":2,\"ciphertext\":\"%s\"}";
     alice.sendMessage(new TextMessage(frame.formatted(bobSub, b64)));
     received.get(15, TimeUnit.SECONDS); // ensure the full path ran before asserting on the trace
 

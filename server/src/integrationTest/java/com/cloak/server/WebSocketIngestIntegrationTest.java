@@ -43,9 +43,9 @@ class WebSocketIngestIntegrationTest extends IntegrationTestBase {
     String ciphertext = Base64.getEncoder().encodeToString(new byte[] {5, 5, 5});
     session.sendMessage(
         new TextMessage(
-            """
-            {"messageId":"%s","toSub":"bob-sub","deviceId":null,"ciphertext":"%s"}
-            """
+            ("{\"messageId\":\"%s\",\"toSub\":\"bob-sub\","
+                    + "\"toDeviceId\":1,\"fromDeviceId\":1,"
+                    + "\"messageType\":3,\"ciphertext\":\"%s\"}")
                 .formatted(id, ciphertext)));
 
     await()
