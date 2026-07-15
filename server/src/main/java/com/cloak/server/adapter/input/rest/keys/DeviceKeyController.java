@@ -19,11 +19,12 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 public class DeviceKeyController {
-  private final RegisterDeviceKeysUseCase useCase;
+  private final RegisterDeviceKeysUseCase registerDeviceKeysUseCase;
   private final FetchPreKeyBundleUseCase fetchUseCase;
 
-  DeviceKeyController(RegisterDeviceKeysUseCase useCase, FetchPreKeyBundleUseCase fetchUseCase) {
-    this.useCase = useCase;
+  DeviceKeyController(
+      RegisterDeviceKeysUseCase registerDeviceKeysUseCase, FetchPreKeyBundleUseCase fetchUseCase) {
+    this.registerDeviceKeysUseCase = registerDeviceKeysUseCase;
     this.fetchUseCase = fetchUseCase;
   }
 
@@ -37,7 +38,8 @@ public class DeviceKeyController {
   @PutMapping("/v1/keys")
   ResponseEntity<Void> publish(
       @AuthenticationPrincipal Jwt jwt, @RequestBody PublishKeyBundleRequest request) {
-    useCase.register(new RegisterDeviceKeysCommand(jwt.getSubject(), request.toDomain()));
+    registerDeviceKeysUseCase.register(
+        new RegisterDeviceKeysCommand(jwt.getSubject(), request.toDomain()));
     return ResponseEntity.noContent().build();
   }
 
