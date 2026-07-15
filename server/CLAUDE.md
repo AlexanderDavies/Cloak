@@ -32,7 +32,7 @@ Red → green → refactor on every feature, bug fix, and behaviour-affecting co
 | Aggregates, factories, value objects, `DomainClock` | §4 |
 | Use cases, commit helper (persist-then-publish), mappers | §5 |
 | Ports & adapters, controller pattern | §6 |
-| Retries, optimistic locking, transaction boundary | §7 |
+| Retries, **circuit breakers & outbound-HTTP resilience**, optimistic locking, transaction boundary | §7 |
 | Domain event orchestration | §8 |
 | Error handling, global exception handler | §9 |
 | Observability (correlation, logging, metrics) | §10 |

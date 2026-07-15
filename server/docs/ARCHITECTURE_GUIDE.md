@@ -710,6 +710,36 @@ public void commitOrder(Order order) { ... }
 - The domain never knows about transactions. Annotations live on the use-case / commit helper, never on a domain class.
 - **Don't** nest transactions across event publishing. If a downstream queue publish must be atomic with the DB write, use the **transactional outbox pattern** (§8.3 footnote).
 
+### 7.4 Outbound HTTP resilience — retries + circuit breaker
+
+Every outbound HTTP call the server makes to a dependency is wrapped in a **Resilience4j `Retry`
+composed with a per-dependency `CircuitBreaker`**, decorated programmatically at the adapter (same
+style as §7.2 — `Retry.decorateSupplier` / `CircuitBreaker.decorateSupplier`, configured once as
+beans, never copy-pasted). Rules:
+
+- **Idempotent-only retries.** Retry only safe/idempotent operations — all `GET`s, and `POST`s only
+  when the operation is naturally idempotent (e.g. a client-credentials token request, which just
+  re-issues a token). Never retry a non-idempotent write.
+- **Transient failures only.** Retry on connect/read timeouts, I/O errors, and 5xx (optionally 429,
+  honouring `Retry-After`). **Never retry a 4xx** — a 404/400 is a definitive answer, not a fault.
+  Classify by exception/status; never blanket-retry.
+- **Exponential backoff + jitter**, bounded by max attempts *and* total duration (reuse
+  `IntervalFunction.ofExponentialRandomBackoff`, §7.2).
+- **Circuit breaker per dependency.** Open on a failure-rate threshold over a rolling window so a
+  sick dependency fails fast (bounded latency) instead of exhausting threads; half-open probes
+  recovery.
+- **Fail gracefully.** On exhausted retries or an open breaker, surface a clear error mapped to
+  **503 Service Unavailable** — never a hang, never a leaked 500.
+- **Observe it.** Wire `resilience4j-micrometer` so retry counts and breaker state export over OTLP
+  (§10); alert on breaker-open.
+
+Applies to the Keycloak Admin API calls (`KeycloakUserDirectoryAdapter`) and any future hosted
+dependency. **Non-HTTP dependencies use their subsystem's native resilience instead of a
+Resilience4j-wrapped client:** Kafka via the idempotent producer (`enable.idempotence`, `retries`,
+`delivery.timeout.ms`); the JDBC/optimistic-lock path via §7.2; JWKS/OIDC decoding via Nimbus's own
+connect/read timeouts + JWKS cache/refresh. (On-device AI means there is no hosted-LLM HTTP call to
+harden — a deliberate non-dependency.)
+
 ---
 
 ## 8. Domain event orchestration
