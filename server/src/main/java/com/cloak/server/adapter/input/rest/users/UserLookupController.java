@@ -19,11 +19,6 @@ public class UserLookupController {
 
   private final LookupUserUseCase useCase;
 
-  /**
-   * Creates the controller.
-   *
-   * @param useCase the user lookup use case
-   */
   UserLookupController(LookupUserUseCase useCase) {
     this.useCase = useCase;
   }

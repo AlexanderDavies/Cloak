@@ -58,6 +58,7 @@ READMEs should be concise: what the component is, how to run it locally, and any
 - **Key management:** Public key distribution goes through the server; private keys never leave the device.
 - **Testing:** On the **server**, integration tests use real transport and infrastructure (Testcontainers, no mocked sockets) to catch protocol-level regressions. The **iOS app** instead mocks its dependencies (mock `Service` / network, in-memory fakes) so its suite needs no running backend — see `app/CLAUDE.md`. Contract fixtures keep those mocks aligned with the real server contract.
 - **Error handling:** Surface transport errors to the user clearly; never silently drop messages.
+- **Code clarity over comments:** Prefer self-explanatory code — clear names and small, focused functions — so the code reads on its own. Add a comment only when it says something the code cannot: the *why* behind a non-obvious decision, a subtle invariant or gotcha, or a pointer to an external contract/spec. Don't restate what the code already shows or narrate the obvious (constructors, getters, trivial delegations, one-line wiring) — such comments are noise; leave them out. The same test governs API docs (Javadoc/DocC): document intent and contracts, not mechanics. When a comment only describes *what* the code does, delete it and let the names carry the meaning.
 
 ## Engineering workflow & quality gates
 
