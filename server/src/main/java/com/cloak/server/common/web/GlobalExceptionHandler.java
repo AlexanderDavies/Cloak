@@ -1,6 +1,8 @@
 package com.cloak.server.common.web;
 
+import com.cloak.server.usecase.DependencyUnavailableException;
 import com.cloak.server.usecase.DeviceNotFoundException;
+import com.cloak.server.usecase.UpstreamRejectedException;
 import com.cloak.server.usecase.UserNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
@@ -146,6 +148,39 @@ public class GlobalExceptionHandler {
     log.warn("User not found for {}", request.getRequestURI());
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
         .body(WrappedResponse.error(ApiError.of("NOT_FOUND", "User not found.")));
+  }
+
+  /**
+   * A downstream dependency is unreachable (retries exhausted or circuit breaker open) — map to
+   * 503. The message never includes the upstream response body (privacy: root CLAUDE.md §0.6).
+   */
+  @ExceptionHandler(DependencyUnavailableException.class)
+  public ResponseEntity<WrappedResponse<Void>> onDependencyUnavailable(
+      DependencyUnavailableException ex, HttpServletRequest request) {
+    log.warn("Upstream dependency unavailable on {}: {}", request.getRequestURI(), ex.getMessage());
+    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        .body(
+            WrappedResponse.error(
+                ApiError.of(
+                    "DEPENDENCY_UNAVAILABLE",
+                    "A required service is temporarily unavailable. Please try again.")));
+  }
+
+  /**
+   * A downstream dependency returned a definitive 4xx (our request/credentials are wrong) — map to
+   * 502. Only the safe static message is logged; the cause (which may embed the upstream response
+   * body) is never logged or returned (privacy: root CLAUDE.md §0.6).
+   */
+  @ExceptionHandler(UpstreamRejectedException.class)
+  public ResponseEntity<WrappedResponse<Void>> onUpstreamRejected(
+      UpstreamRejectedException ex, HttpServletRequest request) {
+    log.warn(
+        "Upstream dependency rejected request on {}: {}", request.getRequestURI(), ex.getMessage());
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+        .body(
+            WrappedResponse.error(
+                ApiError.of(
+                    "UPSTREAM_REJECTED", "A required service could not process the request.")));
   }
 
   /** Domain structural validation failure — e.g. bad key length, duplicate prekey ids. */

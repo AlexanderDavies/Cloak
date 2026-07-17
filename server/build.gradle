@@ -133,6 +133,14 @@ dependencies {
     implementation 'org.flywaydb:flyway-database-postgresql'
     runtimeOnly 'org.postgresql:postgresql'
 
+    // Outbound HTTP resilience (ARCHITECTURE_GUIDE §7.4): declarative @Retry / @CircuitBreaker on
+    // calls to dependencies (Keycloak Admin API), configured under resilience4j.* in application.yml.
+    // The spring-boot3 starter's autoconfiguration and its spring6 AOP aspects load and fire on
+    // Spring Boot 4 / Spring 7 (verified empirically before adopting); it also pulls in the retry,
+    // circuitbreaker and micrometer core modules transitively and auto-binds their metrics to the
+    // MeterRegistry. Framework library, version-pinned explicitly (not BOM-managed).
+    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.3.0'
+
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'com.tngtech.archunit:archunit-junit5:1.3.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -145,6 +153,11 @@ dependencies {
     integrationTestImplementation 'com.github.dasniko:testcontainers-keycloak:3.4.0'
     integrationTestImplementation 'org.testcontainers:grafana' // LgtmStackContainer (otel-lgtm)
     integrationTestImplementation 'org.awaitility:awaitility'
+    // WireMock's Java client (shaded standalone jar → no classpath clash with Boot) drives a
+    // wiremock/wiremock Docker container run as a plain Testcontainers GenericContainer, so the
+    // Keycloak Admin API error paths (5xx/4xx → 503/502) are exercised over real HTTP transport
+    // rather than a mocked socket (server CLAUDE.md / ARCHITECTURE_GUIDE §12.4).
+    integrationTestImplementation 'org.wiremock:wiremock-standalone:3.13.1'
 }
 
 tasks.named('test') {

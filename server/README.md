@@ -129,9 +129,19 @@ Uses the `cloak-server-admin` service account to call the Keycloak Admin REST AP
 ```
 Authorization: Bearer <Keycloak access token>
 → 200 { "data": { "sub": "<uuid>", "deviceId": 1 }, "errors": null, "traceId": "<id>" }
-→ 404 Not Found    when no exact match exists
-→ 401 Unauthorized when the token is missing, expired, or fails audience validation
+→ 404 Not Found          when no exact match exists
+→ 401 Unauthorized       when the token is missing, expired, or fails audience validation
+→ 503 Service Unavailable (code DEPENDENCY_UNAVAILABLE) when the Keycloak Admin API is unreachable —
+      retries on 5xx / timeouts / 429 are exhausted, or the circuit breaker is open
+→ 502 Bad Gateway        (code UPSTREAM_REJECTED) when the Keycloak Admin API returns a definitive 4xx
+      (e.g. the service-account credentials are misconfigured)
 ```
+
+Outbound calls to the Keycloak Admin API carry idempotent retries and a circuit breaker
+(Resilience4j `@Retry`/`@CircuitBreaker`, tuned under `resilience4j.*` in `application.yml`,
+ARCHITECTURE_GUIDE §7.4). Transient failures (5xx, connect/read timeouts, 429) are retried and, if
+they persist or the breaker opens, surface as **503**; a definitive 4xx surfaces as **502**. The
+upstream response body is never logged or returned (privacy: root CLAUDE.md §0.6).
 
 ### `/ws` — WebSocket
 
