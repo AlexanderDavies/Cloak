@@ -90,3 +90,53 @@ management:
       # bucket and the quantile is NaN (empty graph).
       percentiles-histogram:
         http.server.requests: true
+
+# Outbound-HTTP resilience for the Keycloak Admin API (ARCHITECTURE_GUIDE §7.4). The
+# KeycloakAdminClient's calls carry @Retry + @CircuitBreaker for this "keycloak-admin" instance.
+#
+# Aspect order: CircuitBreaker is placed OUTSIDE Retry (lower order value = outer) — inverting
+# Resilience4j's default of Retry-outer. This makes an open breaker fail fast before any retry, and
+# makes a whole retry sequence record as ONE outcome in the breaker, so sliding-window-size /
+# minimum-number-of-calls count logical lookups rather than individual HTTP attempts.
+#
+# retry-exceptions is a whitelist of transient failures: 5xx, connect/read timeouts
+# (ResourceAccessException), and 429 (TooManyRequests). record-exceptions (what trips the breaker) is
+# 5xx + timeouts only — a 429 is back-pressure (retry briefly), NOT unavailability, so it must not
+# open the breaker; and every other 4xx is a definitive answer (our own misconfiguration), so it is
+# neither retried nor recorded. NOTE: Retry-After is not honoured on 429 — accepted for now.
+#
+# Bounded latency (§7.4): there is no separate TimeLimiter (its thread-interrupt cancel does not
+# reliably abort a blocking RestClient read and would fight virtual threads). The worst case is
+# bounded by the primitives instead — per-attempt read timeout (3s, see KeycloakAdminConfig) ×
+# max-attempts (3) per call — and sustained outages are cut short by the breaker.
+resilience4j:
+  retry:
+    retry-aspect-order: 2               # inner (higher value): retries happen INSIDE the breaker
+    instances:
+      keycloak-admin:
+        max-attempts: 3
+        wait-duration: 200ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
+        retry-exceptions:
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpClientErrorException$TooManyRequests
+  circuitbreaker:
+    circuit-breaker-aspect-order: 1     # outer (lower value): an open breaker fails fast before any retry
+    instances:
+      keycloak-admin:
+        failure-rate-threshold: 50
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        # A Keycloak outage degrades one feature (user lookup) but the server itself is healthy — do
+        # not let an open breaker flip /actuator/health and pull the instance from rotation.
+        register-health-indicator: false
+        record-exceptions:
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException

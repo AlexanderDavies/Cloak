@@ -2,7 +2,9 @@ package com.cloak.server.common.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.cloak.server.usecase.DependencyUnavailableException;
 import com.cloak.server.usecase.DeviceNotFoundException;
+import com.cloak.server.usecase.UpstreamRejectedException;
 import com.cloak.server.usecase.UserNotFoundException;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -231,5 +233,40 @@ class GlobalExceptionHandlerTest {
     assertThat(error.message()).isEqualTo("An unexpected error occurred.");
     assertThat(error.message()).doesNotContain("SELECT");
     assertThat(error.message()).doesNotContain("ciphertext-leak");
+  }
+
+  @Test
+  void dependencyUnavailable_returns503_safeMessage_noUpstreamBody() {
+    DependencyUnavailableException ex =
+        new DependencyUnavailableException(
+            "unused", new RuntimeException("401 Unauthorized: \"admin-secret-leak\""));
+
+    ResponseEntity<WrappedResponse<Void>> response = handler.onDependencyUnavailable(ex, request);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    ApiError error = response.getBody().errors().get(0);
+    assertThat(error.code()).isEqualTo("DEPENDENCY_UNAVAILABLE");
+    assertThat(error.message())
+        .isEqualTo("A required service is temporarily unavailable. Please try again.");
+    // The upstream cause's message must never surface on the wire (privacy: root CLAUDE.md §0.6).
+    assertThat(error.message()).doesNotContain("admin-secret-leak");
+  }
+
+  @Test
+  void upstreamRejected_returns502_safeMessage_noUpstreamBody() {
+    UpstreamRejectedException ex =
+        new UpstreamRejectedException(
+            "unused", new RuntimeException("400 Bad Request: \"handle=bob@example.com\""));
+
+    ResponseEntity<WrappedResponse<Void>> response = handler.onUpstreamRejected(ex, request);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+    ApiError error = response.getBody().errors().get(0);
+    assertThat(error.code()).isEqualTo("UPSTREAM_REJECTED");
+    assertThat(error.message()).isEqualTo("A required service could not process the request.");
+    // Neither the handle nor the upstream body may surface on the wire (privacy: root CLAUDE.md
+    // §0.6).
+    assertThat(error.message()).doesNotContain("bob");
+    assertThat(error.message()).doesNotContain("@");
   }
 }
