@@ -5,6 +5,7 @@ public final class Message {
   private final MessageId id;
   private final String senderSub;
   private final String recipientSub;
+  private final String conversationId;
   private final int senderDeviceId;
   private final int recipientDeviceId;
   private final int messageType;
@@ -14,6 +15,7 @@ public final class Message {
       MessageId id,
       String senderSub,
       String recipientSub,
+      String conversationId,
       int senderDeviceId,
       int recipientDeviceId,
       int messageType,
@@ -21,6 +23,7 @@ public final class Message {
     this.id = id;
     this.senderSub = senderSub;
     this.recipientSub = recipientSub;
+    this.conversationId = conversationId;
     this.senderDeviceId = senderDeviceId;
     this.recipientDeviceId = recipientDeviceId;
     this.messageType = messageType;
@@ -33,6 +36,8 @@ public final class Message {
    * @param id message identity
    * @param senderSub authenticated sender {@code sub}
    * @param recipientSub recipient {@code sub}
+   * @param conversationId {@link ConversationId#canonical(String, String)} identifying the 1:1
+   *     conversation this message belongs to
    * @param senderDeviceId libsignal integer device number of the sender
    * @param recipientDeviceId libsignal integer device number of the recipient
    * @param messageType {@code 2} = normal SignalMessage, {@code 3} = PreKeySignalMessage
@@ -43,12 +48,20 @@ public final class Message {
       MessageId id,
       String senderSub,
       String recipientSub,
+      String conversationId,
       int senderDeviceId,
       int recipientDeviceId,
       int messageType,
       Ciphertext ciphertext) {
     return new Message(
-        id, senderSub, recipientSub, senderDeviceId, recipientDeviceId, messageType, ciphertext);
+        id,
+        senderSub,
+        recipientSub,
+        conversationId,
+        senderDeviceId,
+        recipientDeviceId,
+        messageType,
+        ciphertext);
   }
 
   /** Returns the message identity. */
@@ -64,6 +77,11 @@ public final class Message {
   /** Returns the recipient {@code sub}. */
   public String recipientSub() {
     return recipientSub;
+  }
+
+  /** Returns the canonical id of the 1:1 conversation this message belongs to. */
+  public String conversationId() {
+    return conversationId;
   }
 
   /** Returns the libsignal integer device number of the sender. */

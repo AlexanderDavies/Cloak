@@ -2,6 +2,7 @@ package com.cloak.server;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.cloak.server.domain.message.ConversationId;
 import com.cloak.server.domain.message.MessageId;
 import com.cloak.server.port.output.message.MessageRepositoryPort;
 import com.cloak.server.support.IntegrationTestBase;
@@ -19,7 +20,9 @@ class RouteMessageIntegrationTest extends IntegrationTestBase {
   void routedMessage_isPersisted_andRetrievable() {
     byte[] cipher = {7, 7, 7};
     var id = "55555555-5555-5555-5555-555555555555";
-    useCase.route(new RouteMessageCommand(id, "alice-sub", "bob-sub", 1, 1, 2, cipher));
+    var conversationId = ConversationId.canonical("alice-sub", "bob-sub");
+    useCase.route(
+        new RouteMessageCommand(id, "alice-sub", "bob-sub", conversationId, 1, 1, 2, cipher));
     assertThat(repository.find(new MessageId(id)).orElseThrow().ciphertext().value())
         .containsExactly(cipher);
   }

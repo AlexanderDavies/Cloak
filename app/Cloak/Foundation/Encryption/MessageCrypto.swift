@@ -37,13 +37,15 @@ struct MessageCrypto: MessageCrypting {
     /// (a `PreKeySignalMessage`). Later calls return `type == .normal` (a `SignalMessage`).
     func encrypt(_ plaintext: Data, to recipientSub: String, deviceId: UInt32) throws -> EncryptedPayload {
         let peerAddress = try ProtocolAddress(name: recipientSub, deviceId: deviceId)
-        let encrypted = try signalEncrypt(
-            message: plaintext,
-            for: peerAddress,
-            localAddress: localAddress,
-            sessionStore: store,
-            identityStore: store,
-            context: NullContext())
+        let encrypted = try store.exclusively {
+            try signalEncrypt(
+                message: plaintext,
+                for: peerAddress,
+                localAddress: localAddress,
+                sessionStore: store,
+                identityStore: store,
+                context: NullContext())
+        }
         // CiphertextMessage.MessageType is a struct (not an enum); compare against the static .preKey.
         let msgType: SignalMessageType = encrypted.messageType == .preKey ? .preKey : .normal
         return EncryptedPayload(ciphertext: encrypted.serialize(), type: msgType)
@@ -63,25 +65,29 @@ struct MessageCrypto: MessageCrypting {
         switch type {
         case .preKey:
             let msg = try PreKeySignalMessage(bytes: ciphertext)
-            return try signalDecryptPreKey(
-                message: msg,
-                from: peerAddress,
-                localAddress: localAddress,
-                sessionStore: store,
-                identityStore: store,
-                preKeyStore: store,
-                signedPreKeyStore: store,
-                kyberPreKeyStore: store,
-                context: NullContext())
+            return try store.exclusively {
+                try signalDecryptPreKey(
+                    message: msg,
+                    from: peerAddress,
+                    localAddress: localAddress,
+                    sessionStore: store,
+                    identityStore: store,
+                    preKeyStore: store,
+                    signedPreKeyStore: store,
+                    kyberPreKeyStore: store,
+                    context: NullContext())
+            }
         case .normal:
             let msg = try SignalMessage(bytes: ciphertext)
-            return try signalDecrypt(
-                message: msg,
-                from: peerAddress,
-                to: localAddress,
-                sessionStore: store,
-                identityStore: store,
-                context: NullContext())
+            return try store.exclusively {
+                try signalDecrypt(
+                    message: msg,
+                    from: peerAddress,
+                    to: localAddress,
+                    sessionStore: store,
+                    identityStore: store,
+                    context: NullContext())
+            }
         }
     }
 }

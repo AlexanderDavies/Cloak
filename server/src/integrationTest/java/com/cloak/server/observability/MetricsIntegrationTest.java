@@ -3,6 +3,7 @@ package com.cloak.server.observability;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.cloak.server.domain.message.ConversationId;
 import com.cloak.server.support.IntegrationTestBase;
 import com.cloak.server.support.Telemetry;
 import com.cloak.server.usecase.RouteMessageCommand;
@@ -25,7 +26,14 @@ class MetricsIntegrationTest extends IntegrationTestBase {
   void routedCounter_isExportedToPrometheusOverOtlp() {
     routeMessage.route(
         new RouteMessageCommand(
-            UUID.randomUUID().toString(), "alice", "bob", 1, 1, 2, new byte[] {1, 2, 3}));
+            UUID.randomUUID().toString(),
+            "alice",
+            "bob",
+            ConversationId.canonical("alice", "bob"),
+            1,
+            1,
+            2,
+            new byte[] {1, 2, 3}));
 
     await()
         .atMost(Duration.ofSeconds(30))

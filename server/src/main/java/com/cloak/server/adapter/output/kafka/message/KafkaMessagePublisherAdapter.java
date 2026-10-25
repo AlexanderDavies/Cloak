@@ -32,6 +32,7 @@ class KafkaMessagePublisherAdapter implements MessagePublisherPort {
             .setToDeviceId(m.recipientDeviceId())
             .setFromDeviceId(m.senderDeviceId())
             .setMessageType(m.messageType())
+            .setConversationId(m.conversationId())
             .setCiphertext(ByteBuffer.wrap(m.ciphertext().value()))
             .build();
     kafka.send(TOPIC, m.recipientSub(), env);

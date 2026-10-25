@@ -75,16 +75,25 @@ import LibSignalClient
         bob: ParticipantSetup,
         transport: FakeMessageTransport,
         bundleClient: MockPreKeyBundleClient
-    ) -> ChatThreadViewModel {
+    ) throws -> ChatThreadViewModel {
         let establisher = SessionEstablisher(store: alice.store, localAddress: alice.address)
         return ChatThreadViewModel(
             recipient: ResolvedRecipient(sub: "bob", deviceId: 1),
             myDeviceId: 1,
+            repository: try Self.makeRepository(),
+            mySub: "alice",
             bundleClient: bundleClient,
             establisher: establisher,
             crypto: alice.crypto,
             transport: transport,
             tokenProvider: { "test-token" })
+    }
+
+    /// A fresh temp-file SQLCipher-backed repository, independent of the SignalKeyStore databases.
+    private static func makeRepository() throws -> GRDBMessageRepository {
+        let path = NSTemporaryDirectory() + "ct-repo-\(UUID().uuidString).sqlite"
+        let database = try EncryptedDatabase.open(path: path, passphrase: "test-pass")
+        return try GRDBMessageRepository(database: database)
     }
 
     // MARK: - send() tests
@@ -96,7 +105,7 @@ import LibSignalClient
         let bob = try makeParticipant(sub: "bob")
         let transport = FakeMessageTransport()
         let bundleClient = MockPreKeyBundleClient(bundle: bob.bundle)
-        let viewModel = makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
+        let viewModel = try makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
 
         await viewModel.send("hi")
 
@@ -116,6 +125,9 @@ import LibSignalClient
         #expect(env.fromDeviceId == 1)
         #expect(!env.ciphertext.isEmpty)
         #expect(Data(base64Encoded: env.ciphertext) != nil, "Ciphertext must be valid base64")
+        #expect(
+            env.conversationId == ConversationKey.of(["alice", "bob"]),
+            "The server drops any frame whose conversationId mismatches the canonical sorted-subs hash")
     }
 
     /// A second send() does NOT re-fetch the bundle (session already established).
@@ -124,7 +136,7 @@ import LibSignalClient
         let bob = try makeParticipant(sub: "bob")
         let transport = FakeMessageTransport()
         let bundleClient = MockPreKeyBundleClient(bundle: bob.bundle)
-        let viewModel = makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
+        let viewModel = try makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
 
         await viewModel.send("hi")
         await viewModel.send("again")
@@ -145,7 +157,7 @@ import LibSignalClient
         let bob = try makeParticipant(sub: "bob")
         let transport = FakeMessageTransport()
         let bundleClient = MockPreKeyBundleClient(bundle: bob.bundle)
-        let viewModel = makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
+        let viewModel = try makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
 
         async let first: Void = viewModel.send("hi")
         async let second: Void = viewModel.send("yo")
@@ -169,7 +181,7 @@ import LibSignalClient
 
         let transport = FakeMessageTransport()
         let bundleClient = MockPreKeyBundleClient(bundle: bob.bundle)
-        let viewModel = makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
+        let viewModel = try makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
 
         await viewModel.send("again")
 
@@ -188,12 +200,14 @@ import LibSignalClient
         let bob = try makeParticipant(sub: "bob")
         let transport = FakeMessageTransport()
         let bundleClient = MockPreKeyBundleClient(bundle: bob.bundle)
-        let viewModel = makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
+        let viewModel = try makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
 
-        // Bob runs X3DH against Alice's bundle to get an outbound session, then encrypts.
+        // Bob runs X3DH against Alice's bundle to get an outbound session, then encrypts a
+        // serialized MessageContent (the wire plaintext, not raw text — sentAt travels inside it).
         let bobEstablisher = SessionEstablisher(store: bob.store, localAddress: bob.address)
         try bobEstablisher.establishOutbound(with: alice.bundle, recipientSub: "alice")
-        let bobPayload = try bob.crypto.encrypt(Data("hello from bob".utf8), to: "alice", deviceId: 1)
+        let content = try MessageContent(sentAt: Date(), text: "hello from bob").serialized()
+        let bobPayload = try bob.crypto.encrypt(content, to: "alice", deviceId: 1)
         #expect(bobPayload.type == .preKey)
 
         let inboundEnv = MessageEnvelope(
@@ -202,6 +216,7 @@ import LibSignalClient
             toDeviceId: 1,
             fromDeviceId: 1,
             messageType: bobPayload.type,
+            conversationId: "convo-alice-bob",
             ciphertext: bobPayload.ciphertext.base64EncodedString())
 
         await viewModel.receive(inboundEnv)
@@ -220,7 +235,7 @@ import LibSignalClient
         let bob = try makeParticipant(sub: "bob")
         let transport = FakeMessageTransport()
         let bundleClient = MockPreKeyBundleClient(bundle: bob.bundle)
-        let viewModel = makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
+        let viewModel = try makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
 
         // Valid base64, but the decoded bytes are not a valid Signal message — decrypt throws.
         let garbled = Data("notavalidciphertextXXXXXXXXXXXXXXXXX".utf8).base64EncodedString()
@@ -230,6 +245,7 @@ import LibSignalClient
             toDeviceId: 1,
             fromDeviceId: 1,
             messageType: .preKey,
+            conversationId: "convo-alice-bob",
             ciphertext: garbled)
 
         await viewModel.receive(garbageEnv)
@@ -245,7 +261,7 @@ import LibSignalClient
         let bob = try makeParticipant(sub: "bob")
         let transport = FakeMessageTransport()
         let bundleClient = MockPreKeyBundleClient(bundle: bob.bundle)
-        let viewModel = makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
+        let viewModel = try makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
 
         // A well-formed-looking frame from "charlie" (not the thread's peer "bob").
         let foreignEnv = MessageEnvelope(
@@ -254,6 +270,7 @@ import LibSignalClient
             toDeviceId: 1,
             fromDeviceId: 1,
             messageType: .preKey,
+            conversationId: "convo-alice-charlie",
             ciphertext: Data("irrelevant".utf8).base64EncodedString(),
             fromSub: "charlie")
 
@@ -272,7 +289,7 @@ import LibSignalClient
         enum TestError: Error { case networkFailure }
         let transport = FakeMessageTransport(inboundError: TestError.networkFailure)
         let bundleClient = MockPreKeyBundleClient(bundle: bob.bundle)
-        let viewModel = makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
+        let viewModel = try makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
 
         await viewModel.start()
 
@@ -289,22 +306,27 @@ import LibSignalClient
         let alice = try makeParticipant(sub: "alice")
         let bob = try makeParticipant(sub: "bob")
 
-        // Bob runs X3DH with Alice's bundle then encrypts two messages (preKey + normal ratchet).
+        // Bob runs X3DH with Alice's bundle then encrypts two serialized MessageContents
+        // (preKey + normal ratchet), with sentAt increasing so sorted-insert order matches arrival order.
         let bobEstablisher = SessionEstablisher(store: bob.store, localAddress: bob.address)
         try bobEstablisher.establishOutbound(with: alice.bundle, recipientSub: "alice")
-        let payload1 = try bob.crypto.encrypt(Data("msg1".utf8), to: "alice", deviceId: 1)
-        let payload2 = try bob.crypto.encrypt(Data("msg2".utf8), to: "alice", deviceId: 1)
+        let content1 = try MessageContent(sentAt: Date(timeIntervalSince1970: 100), text: "msg1").serialized()
+        let content2 = try MessageContent(sentAt: Date(timeIntervalSince1970: 200), text: "msg2").serialized()
+        let payload1 = try bob.crypto.encrypt(content1, to: "alice", deviceId: 1)
+        let payload2 = try bob.crypto.encrypt(content2, to: "alice", deviceId: 1)
 
         let env1 = MessageEnvelope(
             messageId: "s-1", toSub: "alice", toDeviceId: 1, fromDeviceId: 1,
-            messageType: payload1.type, ciphertext: payload1.ciphertext.base64EncodedString())
+            messageType: payload1.type, conversationId: "convo-alice-bob",
+            ciphertext: payload1.ciphertext.base64EncodedString())
         let env2 = MessageEnvelope(
             messageId: "s-2", toSub: "alice", toDeviceId: 1, fromDeviceId: 1,
-            messageType: payload2.type, ciphertext: payload2.ciphertext.base64EncodedString())
+            messageType: payload2.type, conversationId: "convo-alice-bob",
+            ciphertext: payload2.ciphertext.base64EncodedString())
 
         let transport = FakeMessageTransport(inboundFrames: [env1, env2])
         let bundleClient = MockPreKeyBundleClient(bundle: bob.bundle)
-        let viewModel = makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
+        let viewModel = try makeViewModel(alice: alice, bob: bob, transport: transport, bundleClient: bundleClient)
 
         // start() returns after the pre-built stream finishes — all frames are processed.
         await viewModel.start()

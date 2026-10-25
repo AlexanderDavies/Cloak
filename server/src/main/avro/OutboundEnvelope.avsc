@@ -10,6 +10,7 @@
     { "name": "toDeviceId", "type": "int", "default": 1 },
     { "name": "fromDeviceId", "type": "int", "default": 1 },
     { "name": "messageType", "type": "int", "default": 2, "doc": "2=normal SignalMessage, 3=PreKeySignalMessage; default keeps the schema BACKWARD-compatible" },
+    { "name": "conversationId", "type": "string", "default": "", "doc": "canonical conversation id (sha256 hex of sorted member subs)" },
     { "name": "ciphertext", "type": "bytes", "doc": "opaque; the server never decrypts" }
   ]
 }

@@ -11,6 +11,12 @@ struct RootView: View {
     private let registration: DeviceRegistrationService
     private let database: DatabaseQueue
     private let baseURL: URL
+    /// Built once in `init` from the shared `database` connection — a persistence fault is a
+    /// property of the database, not of the signed-in session, so it must not be re-derived (and
+    /// possibly re-fail) on every body evaluation, and must not be folded into the auth `if let`
+    /// chain where a `nil` here would be indistinguishable from "not signed in yet".
+    private let repository: GRDBMessageRepository?
+    private let backlogCursor: GRDBBacklogCursor?
 
     @State private var setupModel: SetupKeysViewModel?
     /// Non-nil once the Signal key store has been reloaded from disk after first-run registration.
@@ -30,36 +36,74 @@ struct RootView: View {
         self.registration = registration
         self.database = database
         self.baseURL = baseURL
+        self.repository = try? GRDBMessageRepository(database: database)
+        self.backlogCursor = try? GRDBBacklogCursor(database: database)
     }
 
     var body: some View {
         Group {
-            if let store = messagingStore,
-               let token = capturedToken,
-               let mySub = JWT.subject(of: token),
-               let localAddress = try? ProtocolAddress(name: mySub, deviceId: 1),
-               let wsURL = Self.websocketURL(from: baseURL) {
-                // Build the Slice-2 messaging graph and hand it to the conversation list.
-                // Structs (lookup, bundleClient, establisher, crypto) are value types — recreating them
-                // on each body evaluation is fine; ConversationListView preserves its @State (path).
-                let lookup = HTTPUserLookupClient(baseURL: baseURL, runner: URLSessionHTTPGetRunner())
-                let bundleClient = HTTPPreKeyBundleClient(baseURL: baseURL, runner: URLSessionHTTPGetRunner())
-                let establisher = SessionEstablisher(store: store, localAddress: localAddress)
-                let crypto = MessageCrypto(store: store, localAddress: localAddress)
-                let tok = token  // name alias so the @Sendable capture is unambiguous
-                let tokenProvider: @Sendable () async throws -> String = { tok }
-                ConversationListView(
-                    lookup: lookup,
-                    bundleClient: bundleClient,
-                    establisher: establisher,
-                    crypto: crypto,
-                    wsURL: wsURL,
-                    tokenProvider: tokenProvider)
-            } else if let setupModel {
-                SetupKeysView(model: setupModel) { onSetupComplete() }
+            if let repository, let backlogCursor {
+                signedInContent(repository: repository, backlogCursor: backlogCursor)
             } else {
-                signIn
+                persistenceFailure
             }
+        }
+    }
+
+    /// The signed-in / signing-in / not-yet-signed-in states, gated only on the persistence layer
+    /// being healthy — auth state is orthogonal to whether the local database opened successfully.
+    @ViewBuilder
+    private func signedInContent(repository: GRDBMessageRepository, backlogCursor: GRDBBacklogCursor) -> some View {
+        if let store = messagingStore,
+           let token = capturedToken,
+           let mySub = JWT.subject(of: token),
+           let localAddress = try? ProtocolAddress(name: mySub, deviceId: 1),
+           let wsURL = Self.websocketURL(from: baseURL) {
+            // Build the Slice-2/3 messaging graph and hand it to the conversation list.
+            // Structs (lookup, bundleClient, establisher, crypto, historyClient) are value types —
+            // recreating them on each body evaluation is fine; ConversationListView preserves its
+            // @State (path).
+            let lookup = HTTPUserLookupClient(baseURL: baseURL, runner: URLSessionHTTPGetRunner())
+            let bundleClient = HTTPPreKeyBundleClient(baseURL: baseURL, runner: URLSessionHTTPGetRunner())
+            let establisher = SessionEstablisher(store: store, localAddress: localAddress)
+            let crypto = MessageCrypto(store: store, localAddress: localAddress)
+            let historyClient = HTTPMessageHistoryClient(baseURL: baseURL, runner: URLSessionHTTPGetRunner())
+            let tok = token  // name alias so the @Sendable capture is unambiguous
+            let tokenProvider: @Sendable () async throws -> String = { tok }
+            let backlogSync = BacklogSync(
+                client: historyClient, crypto: crypto, repository: repository,
+                cursor: backlogCursor, mySub: mySub, tokenProvider: tokenProvider)
+            ConversationListView(
+                lookup: lookup,
+                bundleClient: bundleClient,
+                establisher: establisher,
+                crypto: crypto,
+                repository: repository,
+                mySub: mySub,
+                wsURL: wsURL,
+                backlogSync: backlogSync,
+                tokenProvider: tokenProvider)
+        } else if let setupModel {
+            SetupKeysView(model: setupModel) { onSetupComplete() }
+        } else {
+            signIn
+        }
+    }
+
+    /// Shown when the local encrypted database failed to open — distinct from the sign-in screen so
+    /// a persistence fault is never mistaken for (or hidden behind) a signed-out state.
+    private var persistenceFailure: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.largeTitle)
+                .foregroundStyle(.red)
+            Text("Local storage unavailable")
+                .font(.headline)
+            Text("Cloak couldn't open its local encrypted database. Please restart the app.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
         }
     }
 

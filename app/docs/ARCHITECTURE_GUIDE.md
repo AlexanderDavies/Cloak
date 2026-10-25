@@ -757,6 +757,11 @@ Therefore: **decrypt exactly once, persist the plaintext to the encrypted store 
 attempt to re-decrypt the same ciphertext** — it is cryptographically impossible. This is *the* reason §6
 exists. A bug that drops the decrypted plaintext before persisting loses the message permanently.
 
+The corollary: **a failed decrypt is permanent**, never transient — retrying cannot succeed. Any queue that
+consumes in order (the backlog high-water mark) must therefore skip an undecryptable message and tell the user
+how many were lost, never hold its position on it; holding would block every later message forever. Only a
+local, retryable failure (a storage write, a dedupe read) may stop the queue for a retry.
+
 ### 7.5 The encryption boundary invariant
 
 Plaintext never crosses the boundary **outward** — not to `MessageTransport`, not to a log, metric, crash

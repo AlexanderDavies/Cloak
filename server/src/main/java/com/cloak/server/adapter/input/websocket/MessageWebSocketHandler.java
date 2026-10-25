@@ -1,10 +1,13 @@
 package com.cloak.server.adapter.input.websocket;
 
+import com.cloak.server.usecase.InvalidFrameException;
 import com.cloak.server.usecase.RouteMessageCommand;
 import com.cloak.server.usecase.RouteMessageUseCase;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import java.util.Base64;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -24,6 +27,8 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @Component
 public class MessageWebSocketHandler extends TextWebSocketHandler {
+
+  private static final Logger log = LoggerFactory.getLogger(MessageWebSocketHandler.class);
 
   private final RouteMessageUseCase useCase;
   private final WebSocketSessionRegistry registry;
@@ -79,15 +84,29 @@ public class MessageWebSocketHandler extends TextWebSocketHandler {
             () -> {
               InboundEnvelope env =
                   jsonMapper.readValue(message.getPayload(), InboundEnvelope.class);
-              useCase.route(
+              // Decoded outside the try below so a malformed-base64 IllegalArgumentException is
+              // never mistaken for a conversationId-validation rejection.
+              byte[] ciphertext = Base64.getDecoder().decode(env.ciphertext());
+              var cmd =
                   new RouteMessageCommand(
                       env.messageId(),
                       sub(session), // sender = authenticated principal, never a client field
                       env.toSub(),
+                      env.conversationId(),
                       env.fromDeviceId(),
                       env.toDeviceId(),
                       env.messageType(),
-                      Base64.getDecoder().decode(env.ciphertext())));
+                      ciphertext);
+              try {
+                useCase.route(cmd);
+              } catch (InvalidFrameException e) {
+                // Validation rejection only — the frame was never persisted or published, so this
+                // log line is true. Anything else (e.g. a malformed message id reaching JDBC, or a
+                // publisher fault after the row committed) propagates: it is an infrastructure
+                // failure, not a drop. Log routing context only, never the sub, ciphertext, or any
+                // message content (§0.6.4 privacy).
+                log.warn("Dropped inbound frame {}: {}", env.messageId(), e.getMessage());
+              }
             });
   }
 }

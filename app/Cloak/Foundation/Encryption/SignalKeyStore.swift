@@ -18,6 +18,15 @@ final class SignalKeyStore: IdentityKeyStore, PreKeyStore, SignedPreKeyStore, Se
     private let database: DatabaseQueue
     private let identity: IdentityKeyPair
     private let registrationId: UInt32
+    private let sessionLock = NSLock()
+
+    /// Runs one whole libsignal operation (load session → crypto → store session) exclusively.
+    /// Each store call is individually serialised by `DatabaseQueue`, but the operation as a whole
+    /// is not: concurrent encrypts/decrypts on one session (backlog sync, live receive, sending)
+    /// would otherwise overwrite each other's ratchet state. Not reentrant — never nest.
+    func exclusively<T>(_ operation: () throws -> T) rethrows -> T {
+        try sessionLock.withLock(operation)
+    }
 
     /// - Parameters:
     ///   - database: The encrypted GRDB queue (from ``EncryptedDatabase``) holding key material.

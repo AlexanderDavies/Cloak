@@ -53,9 +53,20 @@ cmd_me() {
 
 cmd_roundtrip() {
   need curl; need jq; need python3; need websocat "brew install websocat"
-  local msg="${1:-hello from alice}" alice bob bobsub ct bobpid
-  alice="$(mint alice)"; bob="$(mint bob)"; bobsub="$(sub_of "$bob")"
+  local msg="${1:-hello from alice}" alice bob alicesub bobsub ct bobpid conversation_id
+  alice="$(mint alice)"; bob="$(mint bob)"
+  alicesub="$(sub_of "$alice")"; bobsub="$(sub_of "$bob")"
+  # This is a placeholder payload (raw base64 of the plain-text message), not real Signal
+  # ciphertext — the smoke test exercises routing/delivery, not encrypt/decrypt. messageType
+  # 2 (SignalMessage) is the correct routing value for that: this frame isn't establishing a
+  # new session, so it is not a PreKeySignalMessage (3).
   ct="$(printf '%s' "$msg" | base64)"
+  # conversationId = lowercase sha256 hex of the two subs, sorted ascending, joined with ':' —
+  # the same algorithm the server uses to validate it (ConversationId.canonical /
+  # docs/contracts/slice3-message-envelope.md). LC_ALL=C keeps sort byte-ordered so it matches
+  # Java's String.compareTo on these UUID subs.
+  conversation_id="$(printf '%s\n%s\n' "$alicesub" "$bobsub" | LC_ALL=C sort | paste -sd: - \
+    | tr -d '\n' | shasum -a 256 | cut -d' ' -f1)"
 
   echo "bob ($bobsub) connecting and listening..."
   # websocat's -H is multi-value; use the -H=... form so it doesn't swallow the URL.
@@ -64,9 +75,9 @@ cmd_roundtrip() {
   trap 'kill "$bobpid" 2>/dev/null || true' EXIT
   sleep 1
 
-  echo "alice sending to bob (ciphertext base64=$ct)..."
-  { printf '{"messageId":"%s","toSub":"%s","deviceId":null,"ciphertext":"%s"}\n' \
-      "$(uuidgen)" "$bobsub" "$ct"; sleep 1; } \
+  echo "alice sending to bob (ciphertext base64=$ct, conversationId=$conversation_id)..."
+  { printf '{"messageId":"%s","toSub":"%s","toDeviceId":1,"fromDeviceId":1,"messageType":2,"conversationId":"%s","ciphertext":"%s"}\n' \
+      "$(uuidgen)" "$bobsub" "$conversation_id" "$ct"; sleep 1; } \
     | websocat -H="Authorization: Bearer $alice" "$WS_URL"
 
   sleep 2

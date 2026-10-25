@@ -3,6 +3,7 @@ package com.cloak.server.observability;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.cloak.server.domain.message.ConversationId;
 import com.cloak.server.support.IntegrationTestBase;
 import com.cloak.server.support.Telemetry;
 import com.cloak.server.support.Tokens;
@@ -49,8 +50,9 @@ class TracingIntegrationTest extends IntegrationTestBase {
             .get();
     String bobSub = Tokens.subject(bobToken);
 
+    String aliceToken = Tokens.accessToken(issuerUri(), "alice");
     WebSocketHttpHeaders aliceHeaders = new WebSocketHttpHeaders();
-    aliceHeaders.setBearerAuth(Tokens.accessToken(issuerUri(), "alice"));
+    aliceHeaders.setBearerAuth(aliceToken);
     WebSocketSession alice =
         new StandardWebSocketClient()
             .execute(
@@ -60,11 +62,12 @@ class TracingIntegrationTest extends IntegrationTestBase {
             .get();
 
     String b64 = Base64.getEncoder().encodeToString(new byte[] {4, 2, 4, 2});
+    String conversationId = ConversationId.canonical(Tokens.subject(aliceToken), bobSub);
     String frame =
         "{\"messageId\":\"33333333-3333-3333-3333-333333333333\","
             + "\"toSub\":\"%s\",\"toDeviceId\":1,\"fromDeviceId\":1,"
-            + "\"messageType\":2,\"ciphertext\":\"%s\"}";
-    alice.sendMessage(new TextMessage(frame.formatted(bobSub, b64)));
+            + "\"messageType\":2,\"conversationId\":\"%s\",\"ciphertext\":\"%s\"}";
+    alice.sendMessage(new TextMessage(frame.formatted(bobSub, conversationId, b64)));
     received.get(15, TimeUnit.SECONDS); // ensure the full path ran before asserting on the trace
 
     // The WS-ingest span must exist...

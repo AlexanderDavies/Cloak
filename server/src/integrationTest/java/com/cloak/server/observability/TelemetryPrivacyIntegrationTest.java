@@ -3,6 +3,7 @@ package com.cloak.server.observability;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.cloak.server.domain.message.ConversationId;
 import com.cloak.server.support.IntegrationTestBase;
 import com.cloak.server.support.Telemetry;
 import com.cloak.server.support.Tokens;
@@ -60,8 +61,9 @@ class TelemetryPrivacyIntegrationTest extends IntegrationTestBase {
             .get();
     String bobSub = Tokens.subject(bobToken);
 
+    String aliceToken = Tokens.accessToken(issuerUri(), "alice");
     WebSocketHttpHeaders aliceHeaders = new WebSocketHttpHeaders();
-    aliceHeaders.setBearerAuth(Tokens.accessToken(issuerUri(), "alice"));
+    aliceHeaders.setBearerAuth(aliceToken);
     WebSocketSession alice =
         new StandardWebSocketClient()
             .execute(
@@ -70,11 +72,12 @@ class TelemetryPrivacyIntegrationTest extends IntegrationTestBase {
                 URI.create("ws://localhost:" + port + "/ws"))
             .get();
 
+    String conversationId = ConversationId.canonical(Tokens.subject(aliceToken), bobSub);
     String frame =
         "{\"messageId\":\"55555555-5555-5555-5555-555555555555\","
             + "\"toSub\":\"%s\",\"toDeviceId\":1,\"fromDeviceId\":1,"
-            + "\"messageType\":2,\"ciphertext\":\"%s\"}";
-    alice.sendMessage(new TextMessage(frame.formatted(bobSub, SENTINEL)));
+            + "\"messageType\":2,\"conversationId\":\"%s\",\"ciphertext\":\"%s\"}";
+    alice.sendMessage(new TextMessage(frame.formatted(bobSub, conversationId, SENTINEL)));
     received.get(15, TimeUnit.SECONDS); // full path ran (persist → publish → consume → deliver)
     alice.close();
     bob.close();

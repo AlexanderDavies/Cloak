@@ -148,20 +148,63 @@ upstream response body is never logged or returned (privacy: root CLAUDE.md §0.
 Requires `Authorization: Bearer <Keycloak access token>` at the HTTP upgrade handshake.
 Unauthenticated upgrade attempts are rejected with HTTP 401.
 
-**Inbound frame (client → server):** matches `docs/contracts/phase0-message-envelope.md`. The
-client sends `{ messageId, toSub, deviceId, ciphertext(base64) }` — there is no `fromSub` in the
-inbound frame; the server derives the sender identity from the authenticated JWT `sub`.
+**Inbound frame (client → server):** matches `docs/contracts/slice3-message-envelope.md`. The
+client sends `{ messageId, toSub, toDeviceId, fromDeviceId, messageType, conversationId,
+ciphertext(base64) }` — there is no `fromSub` in the inbound frame; the server derives the sender
+identity from the authenticated JWT `sub`. `conversationId` is a deterministic canonical id
+(`sha256_hex` of the sorted, `:`-joined member subs); the server **recomputes and validates** it
+against the authenticated sender and `toSub`, and **drops the frame** (no persistence, no publish)
+on mismatch. `messageType` is `2` (`SignalMessage`) or `3` (`PreKeySignalMessage`) — any other
+value is rejected the same way, since the recipient cannot decode it and a single undecodable row
+would break its whole backlog page.
 
-On receipt, the server persists the ciphertext byte-for-byte to PostgreSQL, then publishes an
-Avro envelope to `cloak.messages.outbound` keyed by the recipient's `sub`.
+On receipt, the server persists the complete row (ciphertext byte-for-byte plus routing metadata)
+to PostgreSQL, then publishes an Avro envelope to `cloak.messages.outbound` keyed by the
+recipient's `sub`.
 
 **Delivery frame (server → recipient):** the consumer reads the Avro envelope and forwards
-`{ messageId, toSub, fromSub, deviceId, ciphertext(base64) }` to every open WebSocket session
-of the recipient. `fromSub` is the server-stamped sender `sub` (not client-supplied).
+`{ messageId, toSub, fromSub, toDeviceId, fromDeviceId, messageType, conversationId,
+ciphertext(base64) }` to every open WebSocket session of the recipient. `fromSub` is the
+server-stamped sender `sub` (not client-supplied); `conversationId` is forwarded unchanged from
+the validated inbound frame.
 
 **Auth model:** JWKS-validated Keycloak tokens (issuer `http://localhost:8081/realms/cloak`,
 audience `cloak-api`). Local-dev seed users `alice` / `bob` (password `password`) are available
 via the seeded realm (`iam/realm/cloak-realm.json`).
+
+### `GET /v1/messages`
+
+Stateless, keyset-paginated pull of the caller's message backlog — the backstop for a recipient
+that missed the live `/ws` delivery (thread closed, app not running). Not a re-readable archive:
+once a client decrypts a message the Double Ratchet advances and that ciphertext can never be
+decrypted again, so this endpoint only ever serves **not-yet-received** messages. See
+`docs/contracts/slice3-message-history.md`.
+
+```
+Authorization: Bearer <Keycloak access token>
+GET /v1/messages?cursor=<opaque>&limit=<n>
+```
+
+The recipient is always the authenticated JWT `sub` — there is no caller-supplied recipient
+parameter. `cursor` is the opaque token from the last successfully-consumed message's `cursor`
+field (omit to start from the beginning); `limit` defaults to 50 and is server-capped at 200
+regardless of what the caller requests.
+
+```
+→ 200 { "data": { "messages": [ { "messageId": "uuid", "fromSub": "<sub>", "fromDeviceId": 1,
+                  "toDeviceId": 1, "messageType": 3, "conversationId": "<sha256 hex>",
+                  "ciphertext": "<base64>", "cursor": "<opaque>" } ],
+                  "hasMore": false },
+        "errors": null, "traceId": "<id>" }
+```
+
+Messages are ordered by `(created_at, id)` — server insertion order, never the sender-authoritative
+`sentAt` (which lives encrypted inside the payload and the server cannot read). `cursor` encodes
+`(created_at, id)`; no global `bigserial` is exposed to clients (it would leak system-wide message
+volume). The server keeps no per-client "last delivered" pointer — every call is a self-contained
+page driven by the caller-supplied `cursor`; the client alone tracks its high-water mark. Rows
+younger than `cloak.messages.backlog-settle-lag` (default `3s`) are withheld so a late-committing
+row can never land behind a cursor already handed out.
 
 ## Local smoke test
 
