@@ -13,16 +13,19 @@ class MessageTest {
 
   @Test
   void message_exposesRoutingMetadataAndOpaqueCiphertext() {
+    var convo = ConversationId.canonical("alice-sub", "bob-sub");
     var msg =
         Message.create(
             new MessageId("11111111-1111-1111-1111-111111111111"),
             "alice-sub",
             "bob-sub",
+            convo,
             1,
             1,
             3,
             new Ciphertext(new byte[] {9, 9}));
     assertThat(msg.recipientSub()).isEqualTo("bob-sub");
+    assertThat(msg.conversationId()).isEqualTo(convo);
     assertThat(msg.senderDeviceId()).isEqualTo(1);
     assertThat(msg.recipientDeviceId()).isEqualTo(1);
     assertThat(msg.messageType()).isEqualTo(3);

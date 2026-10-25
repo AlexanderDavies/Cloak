@@ -162,6 +162,7 @@ import LibSignalClient
             toDeviceId: 1,
             fromDeviceId: 1,
             messageType: payload.type,
+            conversationId: "convo-alice-bob",
             ciphertext: payload.ciphertext.base64EncodedString())
 
         // Serialize to JSON — this is what goes to the server.

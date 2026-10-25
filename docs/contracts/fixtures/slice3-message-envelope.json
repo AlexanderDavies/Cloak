@@ -1,0 +1,10 @@
+{
+  "messageId": "11111111-1111-1111-1111-111111111111",
+  "toSub": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  "toDeviceId": 1,
+  "fromDeviceId": 1,
+  "messageType": 3,
+  "conversationId": "32eaa687f333efc245cc57c857f22ca5fb0e4757ea0a3c147ee2b6da131f77d0",
+  "ciphertext": "BASE64_OPAQUE",
+  "fromSub": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+}

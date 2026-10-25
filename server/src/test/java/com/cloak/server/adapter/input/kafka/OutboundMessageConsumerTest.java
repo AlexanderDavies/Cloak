@@ -33,6 +33,7 @@ class OutboundMessageConsumerTest {
         .setToDeviceId(1)
         .setFromDeviceId(1)
         .setMessageType(3)
+        .setConversationId("a".repeat(64))
         .setCiphertext(ByteBuffer.wrap(new byte[] {1, 2, 3}))
         .build();
   }
@@ -54,6 +55,7 @@ class OutboundMessageConsumerTest {
     assertThat(frame.get("toDeviceId").asInt()).isEqualTo(1);
     assertThat(frame.get("fromDeviceId").asInt()).isEqualTo(1);
     assertThat(frame.get("messageType").asInt()).isEqualTo(3);
+    assertThat(frame.get("conversationId").asString()).isEqualTo("a".repeat(64));
   }
 
   @Test

@@ -6,7 +6,7 @@ import Testing
         let env = MessageEnvelope(
             messageId: "m1", toSub: "bob-sub",
             toDeviceId: 1, fromDeviceId: 2,
-            messageType: .normal, ciphertext: "AQID")
+            messageType: .normal, conversationId: "convo-1", ciphertext: "AQID")
         let text = try env.jsonText()
         #expect(text.contains("\"toSub\":\"bob-sub\""))
         #expect(text.contains("\"ciphertext\":\"AQID\""))
@@ -16,7 +16,7 @@ import Testing
         let env = MessageEnvelope(
             messageId: "m1", toSub: "bob-sub",
             toDeviceId: 1, fromDeviceId: 2,
-            messageType: .preKey, ciphertext: "AQID")
+            messageType: .preKey, conversationId: "convo-1", ciphertext: "AQID")
         #expect(MessageEnvelope.decode(text: try env.jsonText()) == env)
     }
 

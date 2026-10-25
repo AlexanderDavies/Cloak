@@ -66,6 +66,7 @@ public class OutboundMessageConsumer {
     payload.put("toDeviceId", env.getToDeviceId());
     payload.put("fromDeviceId", env.getFromDeviceId());
     payload.put("messageType", env.getMessageType());
+    payload.put("conversationId", env.getConversationId().toString());
     // Opaque ciphertext re-encoded as base64 and forwarded unchanged — never decrypted/inspected.
     payload.put("ciphertext", Base64.getEncoder().encodeToString(ciphertext));
     TextMessage frame = new TextMessage(jsonMapper.writeValueAsString(payload));

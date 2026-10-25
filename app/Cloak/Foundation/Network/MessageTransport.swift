@@ -7,8 +7,13 @@ enum SignalMessageType: Int, Codable, Sendable {
     case preKey = 3
 }
 
-/// Wire envelope (matches docs/contracts/fixtures/slice2-message-envelope.json).
+/// Wire envelope (matches docs/contracts/fixtures/slice3-message-envelope.json).
 /// `ciphertext` is base64 of opaque bytes; the client base64-decodes for display.
+///
+/// `conversationId` is the canonical hash of the two participant subs (see
+/// `ConversationKey.of(_:)`); present on both the inbound and delivery frame. The server
+/// **validates** it against the authenticated sender + `toSub` and drops the frame on mismatch,
+/// so it must always be populated correctly by the caller.
 ///
 /// `fromSub` is present only on the **delivery** frame (server→client), server-stamped from the
 /// sender's validated JWT `sub`; it is `nil` on the **inbound** frame the client sends (the server
@@ -20,6 +25,7 @@ struct MessageEnvelope: Codable, Equatable, Sendable {
     let toDeviceId: UInt32
     let fromDeviceId: UInt32
     let messageType: SignalMessageType
+    let conversationId: String
     let ciphertext: String
     let fromSub: String?
 
@@ -29,6 +35,7 @@ struct MessageEnvelope: Codable, Equatable, Sendable {
         toDeviceId: UInt32,
         fromDeviceId: UInt32,
         messageType: SignalMessageType,
+        conversationId: String,
         ciphertext: String,
         fromSub: String? = nil
     ) {
@@ -37,6 +44,7 @@ struct MessageEnvelope: Codable, Equatable, Sendable {
         self.toDeviceId = toDeviceId
         self.fromDeviceId = fromDeviceId
         self.messageType = messageType
+        self.conversationId = conversationId
         self.ciphertext = ciphertext
         self.fromSub = fromSub
     }

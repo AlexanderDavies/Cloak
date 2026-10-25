@@ -101,6 +101,9 @@ public abstract class IntegrationTestBase {
   @DynamicPropertySource
   static void props(DynamicPropertyRegistry r) {
     r.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+    // Tests seed rows and read them back immediately, some with JVM-clock timestamps; a negative
+    // lag tolerates JVM↔container clock skew so those rows count as settled.
+    r.add("cloak.messages.backlog-settle-lag", () -> "-60s");
     r.add("spring.datasource.username", POSTGRES::getUsername);
     r.add("spring.datasource.password", POSTGRES::getPassword);
     // Flyway runs against the same datasource; migrations come from ../db/migrations.

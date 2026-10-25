@@ -34,6 +34,8 @@ struct CloakApp: App {
     private static func makeGraph(baseURL: URL) -> (DeviceRegistrationService, DatabaseQueue)? {
         do {
             let database = try EncryptedDatabase.openDefault()
+            // Best-effort: if it fails, an interrupted send just keeps showing "Sending…".
+            try? GRDBMessageRepository(database: database).failInterruptedSends()
             let registration = DeviceRegistrationService(
                 publisher: HTTPDeviceKeyPublisher(baseURL: baseURL, runner: URLSessionHTTPRunner()),
                 vault: GRDBDeviceKeyVault(database: database),

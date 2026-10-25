@@ -5,6 +5,7 @@ import static org.awaitility.Awaitility.await;
 
 import com.cloak.server.adapter.output.kafka.message.OutboundEnvelope;
 import com.cloak.server.domain.message.Ciphertext;
+import com.cloak.server.domain.message.ConversationId;
 import com.cloak.server.domain.message.Message;
 import com.cloak.server.domain.message.MessageId;
 import com.cloak.server.port.output.message.MessagePublisherPort;
@@ -32,6 +33,7 @@ class MessagePublishIntegrationTest extends IntegrationTestBase {
             new MessageId("44444444-4444-4444-4444-444444444444"),
             "alice-sub",
             "bob-sub",
+            ConversationId.canonical("alice-sub", "bob-sub"),
             1,
             1,
             3,

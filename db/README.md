@@ -32,6 +32,9 @@ Flyway SQL lives in `migrations/`, named `V{n}__{description}.sql`. It is the si
 | `V1` | Baseline — `encrypted_message` history table + `device` registry |
 | `V2` | Slice 1 — Signal prekey registry: `signed_prekey` and `one_time_prekey` (with `consumed_at` for atomic X3DH consumption) |
 | `V3` | Slice 2 — `kyber_prekey` table for ML-KEM-1024 (PQXDH last-resort Kyber key per device) |
+| `V4` | Slice 3 — `encrypted_message` gains `conversation_id`, `sender_device_id`, `recipient_device_id`, `message_type`; drops the always-null `device_id`. **Destructive:** truncates `encrypted_message` first (see below) |
+
+**V4 truncates `encrypted_message`.** The new columns are `NOT NULL` with no default, which cannot be added to a table that already holds rows. Pre-release this is safe and deliberate: the table is a delivery queue of ciphertext, and decrypt-once means a row already delivered can never be decrypted again — there is nothing to backfill and nothing of value to keep. A developer database that predates this branch loses its queued ciphertext, not any readable history (local device history is authoritative).
 
 **One-time prekey consumption:** `GET /v1/keys/{sub}` atomically claims one row from `one_time_prekey` by setting `consumed_at`. Available keys have `consumed_at IS NULL`; consumed ones are retained for auditability.
 

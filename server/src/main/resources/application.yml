@@ -8,6 +8,10 @@ cloak:
     client-id: cloak-server-admin
     # Dev-only secret — never a real credential. Matches iam/realm/cloak-realm.json.
     client-secret: cloak-server-admin-dev-secret
+  messages:
+    # GET /v1/messages withholds rows younger than this, so a row whose transaction committed late
+    # can never land behind a client's cursor (see MessageHistoryQueries).
+    backlog-settle-lag: 3s
 spring:
   application:
     name: server

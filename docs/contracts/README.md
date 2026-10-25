@@ -18,3 +18,5 @@ Rules:
 - slice2-user-lookup.md — `GET /v1/users/lookup` exact-match handle → sub (Slice 2).
 - slice2-prekey-bundle.md — `GET /v1/keys/{sub}` prekey bundle fetch with PQXDH Kyber key (Slice 2).
 - slice2-message-envelope.md — WebSocket message envelope with integer device ids and messageType (Slice 2; supersedes phase0-message-envelope).
+- slice3-message-envelope.md — WebSocket message envelope with `conversationId` (Slice 3; supersedes slice2-message-envelope).
+- slice3-message-history.md — `GET /v1/messages` stateless keyset-paginated backlog pull (Slice 3).

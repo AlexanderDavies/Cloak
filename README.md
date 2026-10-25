@@ -46,7 +46,8 @@ The iOS app is run via Xcode — open `app/` once the project is initialised.
 | Phase 0 | Server skeleton (auth, E2EE message round-trip, observability) + iOS skeleton (OIDC-PKCE login, WebSocket transport, Phase 0 demo UI) |
 | **Slice 1** | **Device key registration** — on login, the iOS app generates a libsignal key bundle on-device, publishes the public bundle to the server (`PUT /v1/keys`), and stores private keys in the SQLCipher-encrypted on-device DB. Adds a Cloak-branded Keycloak login theme with **self-registration** enabled. |
 | **Slice 2** | **Real E2EE messaging** — user lookup (`GET /v1/users/lookup`), prekey-bundle fetch with atomic one-time-prekey consumption (`GET /v1/keys/{sub}`), PQXDH (X3DH + ML-KEM-1024) session establishment, and an end-to-end chat thread (start-conversation + chat UI). See [`docs/ENCRYPTION.md`](docs/ENCRYPTION.md) for the full cryptographic scheme. |
-| Slice 3+ | Message persistence, contact management, multi-device, on-device AI |
+| **Slice 3** | **Persistent 1:1 conversation** — continuous Double-Ratchet messaging (per-message forward secrecy), local encrypted history (SQLCipher) that restores threads and the conversation list on relaunch **without the network**, and a stateless keyset-paginated backlog endpoint (`GET /v1/messages`) so a device can catch up on messages missed while its thread was closed (a message that can never be decrypted is skipped and reported to the user, never allowed to block the catch-up). Display order is driven by a sender-authoritative `sentAt` carried *inside* the encrypted payload, never a server timestamp. |
+| Slice 4+ | Durable delivery/acks, contact management, multi-device, on-device AI |
 
 ## Prerequisites
 
