@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
+import com.cloak.server.domain.message.ConversationId;
 import com.cloak.server.domain.message.MessageId;
 import com.cloak.server.port.output.message.MessageRepositoryPort;
 import com.cloak.server.support.IntegrationTestBase;
@@ -41,12 +42,13 @@ class WebSocketIngestIntegrationTest extends IntegrationTestBase {
 
     String id = "66666666-6666-6666-6666-666666666666";
     String ciphertext = Base64.getEncoder().encodeToString(new byte[] {5, 5, 5});
+    String conversationId = ConversationId.canonical(Tokens.subject(token), "bob-sub");
     session.sendMessage(
         new TextMessage(
             ("{\"messageId\":\"%s\",\"toSub\":\"bob-sub\","
                     + "\"toDeviceId\":1,\"fromDeviceId\":1,"
-                    + "\"messageType\":3,\"ciphertext\":\"%s\"}")
-                .formatted(id, ciphertext)));
+                    + "\"messageType\":3,\"conversationId\":\"%s\",\"ciphertext\":\"%s\"}")
+                .formatted(id, conversationId, ciphertext)));
 
     await()
         .atMost(Duration.ofSeconds(10))

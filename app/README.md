@@ -25,9 +25,10 @@ open Cloak.xcworkspace     # always open the workspace, never the bare .xcodepro
 > `LIBSIGNAL_FFI_PREBUILD_CHECKSUM` to the SHA-256 from the matching GitHub release asset
 > (`libsignal-client-ios-build-<tag>.tar.gz.sha256`). A mismatch is a hard build error.
 
-## Onboarding + messaging flow (Slices 1–2)
+## Onboarding + messaging flow (Slices 1–3)
 
-After signing in via Keycloak (OIDC-PKCE), the app runs the onboarding flow and opens the chat UI:
+After signing in via Keycloak (OIDC-PKCE), the app runs the onboarding flow and opens the
+conversation list:
 
 1. **Login** — a Cloak-branded Keycloak login page (OIDC-PKCE). Self-registration is enabled; new users
    can create an account directly from the login screen.
@@ -35,13 +36,38 @@ After signing in via Keycloak (OIDC-PKCE), the app runs the onboarding flow and 
    (identity key pair, signed prekey, 100 one-time prekeys). The public bundle is published to the server
    via `PUT /v1/keys`. **Private keys never leave the device**; they are stored in the
    SQLCipher-encrypted on-device database (GRDB + SQLCipher, passphrase held in the iOS Keychain).
-3. **Start conversation** — resolve a peer handle (email or username) to a `ResolvedRecipient` via
-   `GET /v1/users/lookup`, then open the chat thread.
-4. **Chat thread** — compose, encrypt, and send messages; receive and decrypt inbound ones.
+3. **Conversation list** — renders from local encrypted history (last message + timestamp per
+   conversation), so it appears **before any network call**, then triggers a backlog sync to catch up
+   on anything missed while the app was closed. Tapping a row opens that thread. A first conversation
+   is started by resolving a peer handle (email or username) to a `ResolvedRecipient` via
+   `GET /v1/users/lookup`.
+4. **Chat thread** — restores its history from local storage on open, then sends/receives live.
    On the first send to a new peer, the app fetches their pre-key bundle (`GET /v1/keys/{sub}`) and
    runs PQXDH (X3DH + ML-KEM-1024) to establish a session. The first message is a
-   `PreKeySignalMessage`; subsequent messages use the normal Double-Ratchet path. Inbound envelopes are
-   decrypted on receipt. Message history is ephemeral (in-memory) — persistence arrives in Slice 3.
+   `PreKeySignalMessage`; every subsequent message steps the Double Ratchet (forward secrecy).
+   Each message's plaintext is `{ sentAt, text }`, encrypted as the Signal payload — the send
+   timestamp never travels as cleartext metadata. The thread sorts and inserts by that
+   sender-authoritative `sentAt`, so a late-arriving message lands at its correct position rather
+   than being appended. A sent message moves `sending → sent` (or `→ failed` on a transport error).
+   Messages are grouped under centred day separators ("Today", "Yesterday", weekday, then date). Each
+   bubble shows its time inside, on its own line beneath the text, right-aligned; the Sending/Sent mark + label joins it
+   only on the latest outgoing message, and a Failed mark + label on every failed message.
+   A send interrupted by the app being killed shows as Failed on the next launch. All libsignal
+   operations share one lock, so backlog sync, live receive and sending never race on a session.
+
+Local encrypted history (GRDB `message` table in the same SQLCipher database as the keys) is
+**authoritative** for what a device has seen: Double-Ratchet decryption is destructive, so a message
+can only ever be decrypted once and the server cannot re-serve it afterwards. On launch/foreground,
+`BacklogSync` pulls `GET /v1/messages` from the device's stored high-water mark, decrypts each
+not-yet-seen message exactly once, and persists it; delivery via the live `/ws` frame and the
+backlog pull both dedupe on `messageId`, so the same message is never rendered twice regardless of
+which path it arrives on. That dedupe happens **before** the decrypt: the server's queue is
+stateless and re-serves messages already delivered live, and re-decrypting one is impossible, so a
+message already in local history is skipped and the high-water mark simply moves past it. A message
+that can never be opened (invalid base64, a failed decrypt, or malformed plaintext — e.g. sealed to a
+since-replaced identity) is skipped and counted, and the conversation list says how many, so it cannot
+wedge the messages behind it. A transient local failure (the dedupe check or the save) does **not**
+advance the mark: it is retried on every later sync and the list shows a banner until it succeeds.
 
 Key generation uses [LibSignalClient](https://github.com/signalapp/libsignal) (CocoaPods, prebuilt FFI
 binary). The on-device database is encrypted via GRDB/SQLCipher; the passphrase is a 32-byte random

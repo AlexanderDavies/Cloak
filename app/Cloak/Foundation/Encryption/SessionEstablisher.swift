@@ -27,20 +27,22 @@ struct SessionEstablisher: SessionEstablishing {
             return false
         }
         // `try?` yields SessionRecord?? — outer nil means the load threw; inner nil means no session.
-        let loaded = try? store.loadSession(for: address, context: NullContext())
+        let loaded = try? store.exclusively { try store.loadSession(for: address, context: NullContext()) }
         return (loaded ?? nil) != nil
     }
 
     func establishOutbound(with bundle: RemotePreKeyBundle, recipientSub: String) throws {
         let remoteAddress = try ProtocolAddress(name: recipientSub, deviceId: bundle.deviceId)
         let libBundle = try buildPreKeyBundle(from: bundle)
-        try processPreKeyBundle(
-            libBundle,
-            for: remoteAddress,
-            ourAddress: localAddress,
-            sessionStore: store,
-            identityStore: store,
-            context: NullContext())
+        try store.exclusively {
+            try processPreKeyBundle(
+                libBundle,
+                for: remoteAddress,
+                ourAddress: localAddress,
+                sessionStore: store,
+                identityStore: store,
+                context: NullContext())
+        }
     }
 }
 

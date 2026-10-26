@@ -122,4 +122,54 @@ import LibSignalClient
             bobPayload.ciphertext, type: .normal, from: "bob", deviceId: 1)
         #expect(String(bytes: decryptedYo, encoding: .utf8) == "yo")
     }
+    /// Backlog sync, live receive and sending all touch the same peer session, possibly at once.
+    /// libsignal's load-session → crypto → store-session is not atomic on its own, so unserialised
+    /// calls overwrite each other's ratchet state: messages fail to decrypt, or the peer can no
+    /// longer read our replies. Every concurrent decrypt and every concurrent reply must survive.
+    @Test func concurrentEncryptsAndDecryptsOnOneSessionAllSucceed() throws {
+        let (aliceStore, aliceAddress) = try freshStore(sub: "alice", regId: UInt32.random(in: 1...0x3FFF))
+        let bob = try makeBob()
+        try SessionEstablisher(store: aliceStore, localAddress: aliceAddress)
+            .establishOutbound(with: bob.bundle, recipientSub: "bob")
+        let aliceCrypto = MessageCrypto(store: aliceStore, localAddress: aliceAddress)
+        let bobCrypto = MessageCrypto(store: bob.store, localAddress: bob.address)
+        let hello = try aliceCrypto.encrypt(Data("hello".utf8), to: "bob", deviceId: 1)
+        _ = try bobCrypto.decrypt(hello.ciphertext, type: hello.type, from: "alice", deviceId: 1)
+        let reply = try bobCrypto.encrypt(Data("reply".utf8), to: "alice", deviceId: 1)
+        _ = try aliceCrypto.decrypt(reply.ciphertext, type: reply.type, from: "bob", deviceId: 1)
+
+        let count = 200
+        let inbound = try (0..<count).map { try aliceCrypto.encrypt(Data("in\($0)".utf8), to: "bob", deviceId: 1) }
+        let decrypted = ConcurrentResults<String>(count: count)
+        let outbound = ConcurrentResults<EncryptedPayload>(count: count)
+        DispatchQueue.concurrentPerform(iterations: count * 2) { index in
+            if index.isMultiple(of: 2) {
+                let payload = inbound[index / 2]
+                let plaintext = try? bobCrypto.decrypt(
+                    payload.ciphertext, type: payload.type, from: "alice", deviceId: 1)
+                decrypted.set(index / 2, plaintext.flatMap { String(bytes: $0, encoding: .utf8) })
+            } else {
+                outbound.set(index / 2, try? bobCrypto.encrypt(Data("out\(index / 2)".utf8), to: "alice", deviceId: 1))
+            }
+        }
+
+        #expect(decrypted.values == (0..<count).map { "in\($0)" })
+        let repliesAliceCanRead = outbound.values.compactMap { $0 }.compactMap { payload in
+            (try? aliceCrypto.decrypt(payload.ciphertext, type: payload.type, from: "bob", deviceId: 1))
+                .flatMap { String(bytes: $0, encoding: .utf8) }
+        }
+        #expect(Set(repliesAliceCanRead) == Set((0..<count).map { "out\($0)" }))
+    }
+}
+
+/// Thread-safe slots for results written from `concurrentPerform`.
+private final class ConcurrentResults<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [Value?]
+
+    init(count: Int) { storage = Array(repeating: nil, count: count) }
+
+    var values: [Value?] { lock.withLock { storage } }
+
+    func set(_ index: Int, _ value: Value?) { lock.withLock { storage[index] = value } }
 }
