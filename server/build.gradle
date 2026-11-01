@@ -50,7 +50,7 @@ tasks.withType(Checkstyle).configureEach {
 repositories {
     mavenCentral()
     // Confluent artifacts (kafka-avro-serializer, schema registry client) are not on Maven Central.
-    maven { url 'https://packages.confluent.io/maven/' }
+    maven { url = 'https://packages.confluent.io/maven/' }
 }
 
 sourceSets {
